@@ -20,24 +20,32 @@ This plugin connects Hermes Agent to your XMemo account, giving the agent durabl
 
 Hermes looks for memory provider plugins in `$HERMES_HOME/plugins/<name>/`. The default `HERMES_HOME` is `~/.hermes`.
 
-### One-liner (quickest)
+### pip install (recommended)
+
+```bash
+pip install hermes-xmemo
+hermes-xmemo install
+hermes memory setup xmemo
+```
+
+To install to a non-default Hermes home:
+
+```bash
+HERMES_HOME=/path/to/your/hermes-home hermes-xmemo install
+```
+
+### One-liner (no pip)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/install-remote.sh | bash
 hermes memory setup xmemo
 ```
 
-### Using install.sh (recommended if you already cloned)
+### Using install.sh (if you already cloned)
 
 ```bash
 cd hermes-xmemo-plugin
 bash install.sh
-```
-
-To install to a non-default Hermes home:
-
-```bash
-HERMES_HOME=/path/to/your/hermes-home bash install.sh
 ```
 
 ### Manual install
@@ -46,7 +54,7 @@ HERMES_HOME=/path/to/your/hermes-home bash install.sh
 # Remove any previous install first to avoid nested directories.
 rm -rf "${HERMES_HOME:-$HOME/.hermes}/plugins/xmemo"
 mkdir -p "${HERMES_HOME:-$HOME/.hermes}/plugins"
-cp -r xmemo "${HERMES_HOME:-$HOME/.hermes}/plugins/"
+cp -r src/hermes_xmemo/xmemo "${HERMES_HOME:-$HOME/.hermes}/plugins/"
 ```
 
 ### Configure

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-xmemo"
+version = "1.0.0"
+description = "XMemo memory provider plugin for Hermes Agent"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    {name = "XMemo"},
+]
+keywords = ["hermes", "agent", "memory", "xmemo", "plugin"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "httpx>=0.25.0",
+]
+
+[project.scripts]
+hermes-xmemo = "hermes_xmemo.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yonro/hermes-xmemo-plugin"
+Repository = "https://github.com/yonro/hermes-xmemo-plugin"
+Issues = "https://github.com/yonro/hermes-xmemo-plugin/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hermes_xmemo = ["xmemo/*", "xmemo/**/*"]

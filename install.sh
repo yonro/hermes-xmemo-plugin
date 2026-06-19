@@ -7,10 +7,13 @@ HERMES_HOME_ORIGINAL="${HERMES_HOME:-}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 DEST="$HERMES_HOME/plugins/xmemo"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$SCRIPT_DIR/xmemo"
-
-if [ ! -d "$SRC" ]; then
-    echo "Error: plugin source directory not found at $SRC" >&2
+# Prefer the plugin files inside the pip package layout if it exists.
+if [ -d "$SCRIPT_DIR/src/hermes_xmemo/xmemo" ]; then
+    SRC="$SCRIPT_DIR/src/hermes_xmemo/xmemo"
+elif [ -d "$SCRIPT_DIR/xmemo" ]; then
+    SRC="$SCRIPT_DIR/xmemo"
+else
+    echo "Error: plugin source directory not found" >&2
     echo "Run this script from the root of the hermes-xmemo-plugin repo." >&2
     exit 1
 fi
