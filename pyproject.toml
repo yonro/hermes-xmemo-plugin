@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermes-xmemo"
-version = "1.0.0"
+dynamic = ["version"]
 description = "XMemo memory provider plugin for Hermes Agent"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,3 +40,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 hermes_xmemo = ["xmemo/*", "xmemo/**/*"]
+
+[tool.setuptools_scm]
+write_to = "src/hermes_xmemo/_version.py"
+fallback_version = "0.0.0+unknown"
