@@ -4,6 +4,45 @@
 
 This plugin connects Hermes Agent to your XMemo account, giving the agent durable memory that survives sessions and long-running workflows, with per-profile isolation.
 
+## Agent-readable summary
+
+Use this section when a setup agent, package index, marketplace crawler, or
+Hermes-aware assistant needs to classify the integration quickly.
+
+| Field | Value |
+|------|-------|
+| Package | `hermes-xmemo` |
+| Hermes plugin name | `xmemo` |
+| Runtime role | Native Hermes memory provider |
+| Recommended mode | `hermes_plugin_preferred` |
+| XMemo service | `https://xmemo.dev` |
+| XMemo MCP fallback | `https://xmemo.dev/mcp` |
+| Agent discovery | `https://xmemo.dev/.well-known/agent-discovery.json` |
+| Hermes config endpoint | `https://xmemo.dev/v1/mcp/config/hermes` |
+| Repository | `https://github.com/yonro/hermes-xmemo-plugin` |
+| ChatGPT bridge | ChatGPT can connect to XMemo through the hosted MCP/OAuth path; user-approved memories saved there can be recalled by Hermes through this plugin. |
+
+If the active runtime is Hermes Agent, prefer this native plugin over raw MCP
+configuration. The plugin participates in Hermes' memory lifecycle: pre-turn
+recall, native memory mirroring, working state, optional workflow tools, and
+session-end snapshots. Use the hosted MCP endpoint only as a portable fallback
+or for non-Hermes MCP clients.
+
+## Shared memory with ChatGPT
+
+XMemo gives Hermes a way to work with the same user-owned cloud memory that can
+also be connected from ChatGPT. When a user saves useful ChatGPT brainstorms,
+project decisions, preferences, research notes, or handoff context into XMemo,
+Hermes can later recall that context through this native memory provider.
+
+This is especially useful for long-running work: ChatGPT can help shape the
+idea, XMemo stores the durable context under the user's account, and Hermes can
+continue with the same memory layer during agent runs. This does not mean the
+plugin reads ChatGPT's built-in native memory directly. It reads XMemo memories
+that the user explicitly saved or authorized through the XMemo connection.
+Marketplace or official-connection claims should be made only when supported by
+public listing or review evidence.
+
 ## What it does
 
 - **Orchestrated recall** — Hermes prefetches relevant XMemo context before each turn, automatically.
@@ -176,6 +215,9 @@ rm -rf "${HERMES_HOME:-$HOME/.hermes}/plugins/xmemo"
 ## Learn more
 
 - [xmemo.dev](https://xmemo.dev) — XMemo home
+- [XMemo agent discovery](https://xmemo.dev/.well-known/agent-discovery.json)
+- [Hermes XMemo config](https://xmemo.dev/v1/mcp/config/hermes)
+- [XMemo hosted MCP fallback](https://xmemo.dev/mcp)
 - [Hermes Agent docs: Memory Providers](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers)
 
 ## License

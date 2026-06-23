@@ -18,6 +18,13 @@ keywords = [
     "agent",
     "memory",
     "memory-provider",
+    "long-term-memory",
+    "semantic-memory",
+    "cloud-memory",
+    "cross-agent-memory",
+    "chatgpt-memory",
+    "shared-ai-memory",
+    "hermes-agent-memory",
     "xmemo",
     "plugin",
     "context",
@@ -44,6 +51,22 @@ hermes-xmemo = "hermes_xmemo.cli:main"
 Homepage = "https://github.com/yonro/hermes-xmemo-plugin"
 Repository = "https://github.com/yonro/hermes-xmemo-plugin"
 Issues = "https://github.com/yonro/hermes-xmemo-plugin/issues"
+XMemo = "https://xmemo.dev"
+"XMemo Agent Discovery" = "https://xmemo.dev/.well-known/agent-discovery.json"
+"XMemo Hermes Config" = "https://xmemo.dev/v1/mcp/config/hermes"
+"XMemo MCP Fallback" = "https://xmemo.dev/mcp"
+
+[tool.xmemo]
+role = "hermes_memory_provider"
+recommended_mode = "hermes_plugin_preferred"
+service_url = "https://xmemo.dev"
+agent_discovery = "https://xmemo.dev/.well-known/agent-discovery.json"
+hermes_config = "https://xmemo.dev/v1/mcp/config/hermes"
+mcp_fallback = "https://xmemo.dev/mcp"
+chatgpt_connection = "https://xmemo.dev/mcp"
+plugin_repository = "https://github.com/yonro/hermes-xmemo-plugin"
+token_in_metadata = false
+official_marketplace_claim = false
 
 [tool.setuptools.packages.find]
 where = ["src"]

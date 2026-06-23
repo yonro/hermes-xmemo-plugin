@@ -2,6 +2,26 @@
 
 [XMemo](https://xmemo.dev) is an identity-aware, user-owned memory layer for AI agents. This plugin connects Hermes Agent to your XMemo account so the agent can recall, store, and manage persistent memory across sessions.
 
+## Discovery
+
+Hermes-aware setup agents can start from:
+
+- XMemo discovery: `https://xmemo.dev/.well-known/agent-discovery.json`
+- Hermes config: `https://xmemo.dev/v1/mcp/config/hermes`
+- Repository: `https://github.com/yonro/hermes-xmemo-plugin`
+
+For Hermes Agent, prefer this native provider plugin. The hosted MCP endpoint
+(`https://xmemo.dev/mcp`) remains available as a portable fallback for MCP-only
+clients.
+
+## Shared memory with ChatGPT
+
+When ChatGPT is connected to XMemo through the hosted MCP/OAuth path, durable
+brainstorms, project decisions, preferences, and handoff notes saved into XMemo
+can later be recalled by Hermes through this provider. The provider does not
+read ChatGPT's built-in native memory directly; it reads user-approved XMemo
+memory in the same account.
+
 ## Requirements
 
 - Hermes already depends on `httpx`.

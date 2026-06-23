@@ -1,6 +1,6 @@
 name: xmemo
 version: 1.0.0
-description: "XMemo — user-owned cloud memory for AI agents, with orchestrated recall, semantic search, and durable fact storage."
+description: "XMemo — native Hermes memory provider for user-owned cloud memory, orchestrated recall, semantic search, durable fact storage, working state, and session snapshots."
 pip_dependencies:
   - httpx
 hooks:
