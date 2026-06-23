@@ -16,6 +16,11 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+def _drop_none(values: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove unset optional parameters before sending them over HTTP."""
+    return {key: value for key, value in values.items() if value is not None}
+
+
 class XMemoClientError(Exception):
     """Raised when an XMemo API call fails."""
 
@@ -103,8 +108,8 @@ class XMemoClient:
         self,
         query: str,
         *,
-        bucket: str = "work",
-        scope: str = "hermes/default",
+        bucket: str = "%",
+        scope: Optional[str] = None,
         max_items: int = 5,
         max_tokens: int = 900,
         memory_type: str = "auto",
@@ -114,7 +119,7 @@ class XMemoClient:
         return self._request(
             "POST",
             "/v1/recall/context",
-            json_body={
+            json_body=_drop_none({
                 "query": query,
                 "bucket": bucket,
                 "scope": scope,
@@ -122,15 +127,15 @@ class XMemoClient:
                 "max_tokens": max_tokens,
                 "memory_type": memory_type,
                 "prefer_working": prefer_working,
-            },
+            }),
         )
 
     def search(
         self,
         query: str,
         *,
-        bucket: str = "work",
-        scope: str = "hermes/default",
+        bucket: str = "%",
+        scope: Optional[str] = None,
         memory_type: str = "%",
         limit: int = 5,
         explain: bool = False,
@@ -140,7 +145,7 @@ class XMemoClient:
         result = self._request(
             "GET",
             "/v1/memories/search",
-            params={
+            params=_drop_none({
                 "query": query,
                 "bucket": bucket,
                 "scope": scope,
@@ -148,7 +153,7 @@ class XMemoClient:
                 "limit": limit,
                 "explain": explain,
                 "prefer_working": prefer_working,
-            },
+            }),
         )
         if isinstance(result, dict):
             return result.get("results", []) or []
@@ -277,8 +282,8 @@ class XMemoClient:
     def list_reminders(
         self,
         *,
-        bucket: str = "work",
-        scope: str = "hermes/default",
+        bucket: str = "%",
+        scope: Optional[str] = None,
         item_status: str = "open",
         limit: int = 20,
     ) -> List[Dict[str, Any]]:
@@ -286,12 +291,12 @@ class XMemoClient:
         result = self._request(
             "GET",
             "/v1/reminders",
-            params={
+            params=_drop_none({
                 "bucket": bucket,
                 "scope": scope,
                 "item_status": item_status,
                 "limit": limit,
-            },
+            }),
         )
         if isinstance(result, dict):
             return result.get("items", []) or result.get("reminders", []) or []
@@ -303,12 +308,12 @@ class XMemoClient:
         self,
         todo_id: str,
         *,
-        bucket: str = "work",
-        scope: str = "hermes/default",
+        bucket: str = "%",
+        scope: Optional[str] = None,
         note: str = "",
     ) -> Dict[str, Any]:
         """Mark a TODO item as completed."""
-        payload: Dict[str, Any] = {"bucket": bucket, "scope": scope}
+        payload: Dict[str, Any] = _drop_none({"bucket": bucket, "scope": scope})
         if note:
             payload["note"] = note
         return self._request(
@@ -344,12 +349,12 @@ class XMemoClient:
         self,
         memory_id: str,
         *,
-        bucket: str = "work",
-        scope: str = "hermes/default",
+        bucket: str = "%",
+        scope: Optional[str] = None,
         reason: str = "",
     ) -> Dict[str, Any]:
         """Delete a memory by exact id."""
-        payload: Dict[str, Any] = {"bucket": bucket, "scope": scope}
+        payload: Dict[str, Any] = _drop_none({"bucket": bucket, "scope": scope})
         if reason:
             payload["reason"] = reason
         return self._request(

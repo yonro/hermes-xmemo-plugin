@@ -135,7 +135,7 @@ def _run_schema_setup(
                     )
                 else:
                     if url:
-                        print(f"  Get yours at {url}")
+                        print(f"  Get your XMemo token at {url}")
                     val = _prompt(desc, secret=True)
                 if val and env_var:
                     env_writes[env_var] = val

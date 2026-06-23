@@ -33,6 +33,8 @@ memory in the same account.
 hermes memory setup xmemo
 ```
 
+The setup wizard only asks for your XMemo token.
+
 This writes:
 
 - `config.yaml` → `memory.provider = xmemo`
@@ -44,27 +46,30 @@ history, logs, or git-tracked files.
 
 ## What it does
 
-- **Orchestrated recall** — prefetches relevant XMemo context before each turn.
-- **Semantic search** — natural-language search over durable facts.
+- **Cross-agent recall** — prefetches relevant XMemo context from all visible memories in your XMemo account, including memories written by other connected agents.
+- **Semantic search** — natural-language search over durable facts, with provenance such as `self` or `other_agent` when XMemo returns it.
 - **Durable fact storage** — explicit `xmemo_remember` tool.
 - **Working state** — save active task / next action / blocker with TTL.
 - **Built-in memory mirroring** — Hermes native `memory` writes are mirrored to XMemo.
 - **Session snapshots** — capture restart snapshots at session end.
 - **Reminders & timeline** — optional workflow tools (opt-in).
-- **Profile isolation** — each Hermes profile uses its own `xmemo.json` and scope.
+- **Hermes write scoping** — new Hermes-authored memories are written to the configured Hermes scope so provenance stays clear.
 - **Resilient** — circuit breaker protects the chat from a slow/unavailable XMemo API.
 
 ## Config
 
 Config file: `$HERMES_HOME/xmemo.json`
 
+Most users can leave this file at its defaults.
+
 | Key | Default | Description |
 |-----|---------|-------------|
-| `base_url` | `https://xmemo.dev` | XMemo service URL |
 | `agent_id` | `hermes` | Agent family identifier |
 | `agent_instance_id` | auto-generated | Stable install identifier (random UUID) |
-| `bucket` | `work` | Storage namespace |
-| `scope` | `hermes/default` | Project/session scope |
+| `bucket` | `work` | Storage namespace for new Hermes-authored writes |
+| `scope` | `hermes/default` | Scope for new Hermes-authored writes |
+| `read_bucket` | `%` | Bucket filter for recall/search (`%` = all visible buckets) |
+| `read_scope` | unset | Scope filter for recall/search (unset = all visible scopes) |
 | `timeout_seconds` | `5.0` | REST request timeout |
 | `prefetch_max_items` | `5` | Max context items per recall |
 | `prefetch_max_tokens` | `900` | Max context tokens per recall |

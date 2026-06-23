@@ -38,8 +38,10 @@ _PREFETCH_JOIN_TIMEOUT_SECONDS = 0.25
 SEARCH_SCHEMA = {
     "name": "xmemo_search",
     "description": (
-        "Search XMemo memories by natural-language query. "
+        "Search all visible user-owned XMemo memories by natural-language query, "
+        "including memories written by other agents connected to the same XMemo account. "
         "Returns relevant facts ranked by semantic similarity. "
+        "Results may include agent_boundary/provenance metadata such as self or other_agent. "
         "Use this when the user asks about saved information or when prior "
         "context could change the answer."
     ),
@@ -127,7 +129,8 @@ UPDATE_STATE_SCHEMA = {
 RECALL_CONTEXT_SCHEMA = {
     "name": "xmemo_recall_context",
     "description": (
-        "Build a bounded, ranked context pack from XMemo memories. "
+        "Build a bounded, ranked context pack from all visible user-owned XMemo memories, "
+        "including memories written by other agents connected to the same XMemo account. "
         "Use when you need a focused memory summary rather than raw search results."
     ),
     "parameters": {
@@ -341,6 +344,9 @@ def _format_search_results(results: List[Dict[str, Any]]) -> str:
         path = item.get("path", "")
         score = item.get("similarity") or item.get("score")
         header = f"{i}. [{memory_type}]"
+        boundary = _agent_boundary_label(item)
+        if boundary:
+            header += f" [{boundary}]"
         if path:
             header += f" {path}"
         if score is not None:
@@ -348,6 +354,22 @@ def _format_search_results(results: List[Dict[str, Any]]) -> str:
         lines.append(header)
         lines.append(f"   {content.strip()}")
     return "\n".join(lines)
+
+
+def _agent_boundary_label(item: Dict[str, Any]) -> str:
+    """Return a compact provenance label from XMemo agent-boundary metadata."""
+    boundary = item.get("agent_boundary")
+    if isinstance(boundary, str):
+        return boundary
+    if isinstance(boundary, dict):
+        for key in ("boundary", "agent_boundary", "relationship", "ownership"):
+            value = boundary.get(key)
+            if value:
+                return str(value)
+    ownership = item.get("ownership")
+    if ownership:
+        return str(ownership)
+    return ""
 
 
 def _format_recall_context(context: Dict[str, Any]) -> str:
@@ -365,7 +387,11 @@ def _format_recall_context(context: Dict[str, Any]) -> str:
         content = item.get("content", "")
         if not content:
             continue
-        lines.append(f"{i}. {content.strip()}")
+        boundary = _agent_boundary_label(item)
+        prefix = f"{i}."
+        if boundary:
+            prefix += f" [{boundary}]"
+        lines.append(f"{prefix} {content.strip()}")
     return "\n".join(lines)
 
 
@@ -460,58 +486,19 @@ class XMemoMemoryProvider(MemoryProvider):
             return False
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
+        # Keep the interactive Hermes setup path intentionally small:
+        # a default XMemo Cloud install only needs a token. Advanced values
+        # such as bucket, scope, and optional tools still have
+        # defaults in config.load_config() and can be overridden with
+        # environment variables or $HERMES_HOME/xmemo.json.
         return [
             {
                 "key": "api_key",
-                "description": "XMemo service token",
+                "description": "XMemo token from xmemo.dev",
                 "secret": True,
                 "required": True,
                 "env_var": "XMEMO_KEY",
                 "url": "https://xmemo.dev",
-            },
-            {
-                "key": "base_url",
-                "description": "XMemo service URL",
-                "default": "https://xmemo.dev",
-            },
-            {
-                "key": "agent_id",
-                "description": "Agent family identifier",
-                "default": "hermes",
-            },
-            {
-                "key": "bucket",
-                "description": "Default storage namespace",
-                "default": "work",
-                "choices": ["work", "private", "public"],
-            },
-            {
-                "key": "scope",
-                "description": "Default project/session scope",
-                "default": "hermes/default",
-            },
-            {
-                "key": "timeout_seconds",
-                "description": "REST request timeout",
-                "default": "5.0",
-            },
-            {
-                "key": "enable_workflow_tools",
-                "description": "Expose reminder/event workflow tools",
-                "default": "false",
-                "choices": ["true", "false"],
-            },
-            {
-                "key": "enable_destructive_tools",
-                "description": "Expose the xmemo_forget destructive tool",
-                "default": "false",
-                "choices": ["true", "false"],
-            },
-            {
-                "key": "capture_timeline",
-                "description": "Record high-signal turns to the XMemo timeline",
-                "default": "false",
-                "choices": ["true", "false"],
             },
         ]
 
@@ -560,6 +547,35 @@ class XMemoMemoryProvider(MemoryProvider):
             )
             return self._client
 
+    def _write_bucket(self) -> str:
+        """Bucket for new Hermes-authored memories."""
+        return str(self._config.get("bucket", "work") or "work")
+
+    def _write_scope(self) -> str:
+        """Scope for new Hermes-authored memories."""
+        return str(self._config.get("scope", "hermes/default") or "hermes/default")
+
+    def _read_bucket(self) -> str:
+        """Bucket filter for recall/search.
+
+        Read paths default to all visible buckets so Hermes can recall memories
+        written by other agents in the same XMemo account. Operators may still
+        narrow this with an advanced ``read_bucket`` value in xmemo.json.
+        """
+        return str(self._config.get("read_bucket") or "%")
+
+    def _read_scope(self) -> Optional[str]:
+        """Scope filter for recall/search.
+
+        ``None`` means no explicit scope filter, matching XMemo's MCP/REST
+        recall defaults. Operators may set ``read_scope`` in xmemo.json to
+        narrow recall for a specific deployment.
+        """
+        value = self._config.get("read_scope")
+        if value is None or str(value).strip() == "":
+            return None
+        return str(value)
+
     def initialize(self, session_id: str, **kwargs) -> None:
         """Initialize XMemo provider for a session."""
         self._config = load_config(create_instance=True)
@@ -599,7 +615,9 @@ class XMemoMemoryProvider(MemoryProvider):
         return (
             "# XMemo Memory\n"
             "Active. User-owned cloud memory is available.\n"
-            f"Scope: {scope}.\n"
+            f"New Hermes memories are written to scope: {scope}.\n"
+            "Search and recall read all visible user-owned XMemo memories across connected agents by default; "
+            "use agent_boundary/provenance metadata to distinguish self vs other_agent memories. "
             "Use xmemo_search to recall saved facts before answering. "
             "Use xmemo_remember to store durable facts (preferences, decisions, conventions, action items). "
             "Use xmemo_update_state to save the current task state with TTL."
@@ -647,8 +665,8 @@ class XMemoMemoryProvider(MemoryProvider):
                 client = self._get_client()
                 context = client.recall_context(
                     query=query,
-                    bucket=self._config.get("bucket", "work"),
-                    scope=self._config.get("scope", "hermes/default"),
+                    bucket=self._read_bucket(),
+                    scope=self._read_scope(),
                     max_items=int(self._config.get("prefetch_max_items", 5)),
                     max_tokens=int(self._config.get("prefetch_max_tokens", 900)),
                     prefer_working=True,
@@ -698,8 +716,8 @@ class XMemoMemoryProvider(MemoryProvider):
             client.record_event(
                 content=summary,
                 event_type="session_event",
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._write_bucket(),
+                scope=self._write_scope(),
                 session_id=session_id or self._session_id,
             )
             self._record_success()
@@ -771,8 +789,8 @@ class XMemoMemoryProvider(MemoryProvider):
         try:
             results = client.search(
                 query=query,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._read_bucket(),
+                scope=self._read_scope(),
                 memory_type=memory_type,
                 limit=limit,
             )
@@ -808,8 +826,8 @@ class XMemoMemoryProvider(MemoryProvider):
             result = client.remember(
                 content=content,
                 path=path,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._write_bucket(),
+                scope=self._write_scope(),
                 memory_type=memory_type,
                 importance=importance,
             )
@@ -840,8 +858,8 @@ class XMemoMemoryProvider(MemoryProvider):
                 current_task=current_task,
                 next_action=next_action,
                 blocked_reason=blocked_reason,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._write_bucket(),
+                scope=self._write_scope(),
                 ttl_seconds=ttl_seconds,
             )
             self._record_success()
@@ -868,8 +886,8 @@ class XMemoMemoryProvider(MemoryProvider):
         try:
             context = client.recall_context(
                 query=query,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._read_bucket(),
+                scope=self._read_scope(),
                 max_items=max_items,
                 max_tokens=int(self._config.get("prefetch_max_tokens", 900)),
                 memory_type=memory_type,
@@ -898,8 +916,8 @@ class XMemoMemoryProvider(MemoryProvider):
             result = client.record_event(
                 content=content,
                 event_type=event_type,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._write_bucket(),
+                scope=self._write_scope(),
                 session_id=self._session_id,
             )
             self._record_success()
@@ -922,8 +940,8 @@ class XMemoMemoryProvider(MemoryProvider):
             result = client.create_reminder(
                 content=content,
                 due_at=due_at,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._write_bucket(),
+                scope=self._write_scope(),
                 session_id=self._session_id,
             )
             self._record_success()
@@ -944,8 +962,8 @@ class XMemoMemoryProvider(MemoryProvider):
 
         try:
             items = client.list_reminders(
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._read_bucket(),
+                scope=self._read_scope(),
                 item_status=item_status,
                 limit=limit,
             )
@@ -971,8 +989,8 @@ class XMemoMemoryProvider(MemoryProvider):
             result = client.complete_reminder(
                 todo_id=todo_id,
                 note=note,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._read_bucket(),
+                scope=self._read_scope(),
             )
             self._record_success()
             return json.dumps({
@@ -1015,8 +1033,8 @@ class XMemoMemoryProvider(MemoryProvider):
             result = client.forget(
                 memory_id=memory_id,
                 reason=reason,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._read_bucket(),
+                scope=self._read_scope(),
             )
             self._record_success()
             return json.dumps({
@@ -1091,8 +1109,8 @@ class XMemoMemoryProvider(MemoryProvider):
             client.remember(
                 content=content,
                 path=path,
-                bucket=self._config.get("bucket", "work"),
-                scope=self._config.get("scope", "hermes/default"),
+                bucket=self._write_bucket(),
+                scope=self._write_scope(),
                 memory_type="semantic",
             )
             self._record_success()
@@ -1112,8 +1130,8 @@ class XMemoMemoryProvider(MemoryProvider):
                 client = self._get_client()
                 client.create_restart_snapshot(
                     session_id=self._session_id,
-                    bucket=self._config.get("bucket", "work"),
-                    scope=self._config.get("scope", "hermes/default"),
+                    bucket=self._write_bucket(),
+                    scope=self._write_scope(),
                 )
                 self._record_success()
             except Exception as exc:

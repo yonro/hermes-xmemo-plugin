@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASE_URL = "https://xmemo.dev"
 DEFAULT_BUCKET = "work"
 DEFAULT_SCOPE = "hermes/default"
+DEFAULT_READ_BUCKET = "%"
 DEFAULT_TIMEOUT_SECONDS = 5.0
 DEFAULT_PREFETCH_MAX_ITEMS = 5
 DEFAULT_PREFETCH_MAX_TOKENS = 900
@@ -87,6 +88,14 @@ def load_config(*, create_instance: bool = False) -> Dict[str, Any]:
 
     bucket = os.environ.get("XMEMO_BUCKET") or file_cfg.get("bucket", DEFAULT_BUCKET)
     scope = os.environ.get("XMEMO_SCOPE") or file_cfg.get("scope", DEFAULT_SCOPE)
+    read_bucket = (
+        os.environ.get("XMEMO_READ_BUCKET")
+        or file_cfg.get("read_bucket")
+        or DEFAULT_READ_BUCKET
+    )
+    read_scope = os.environ.get("XMEMO_READ_SCOPE")
+    if read_scope is None:
+        read_scope = file_cfg.get("read_scope")
 
     timeout = file_cfg.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
     if "XMEMO_TIMEOUT_SECONDS" in os.environ:
@@ -120,6 +129,8 @@ def load_config(*, create_instance: bool = False) -> Dict[str, Any]:
         "agent_instance_id": agent_instance_id,
         "bucket": bucket,
         "scope": scope,
+        "read_bucket": read_bucket,
+        "read_scope": read_scope,
         "timeout_seconds": timeout,
         "prefetch_max_items": prefetch_max_items,
         "prefetch_max_tokens": prefetch_max_tokens,

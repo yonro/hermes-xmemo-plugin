@@ -45,14 +45,14 @@ public listing or review evidence.
 
 ## What it does
 
-- **Orchestrated recall** — Hermes prefetches relevant XMemo context before each turn, automatically.
-- **Semantic search** — ask the agent to search saved facts with natural language (`xmemo_search`).
+- **Cross-agent recall** — Hermes prefetches relevant XMemo context from all visible memories in your XMemo account, including memories written by other connected agents.
+- **Semantic search** — ask the agent to search saved facts with natural language (`xmemo_search`); results include provenance such as `self` or `other_agent` when XMemo returns it.
 - **Durable fact storage** — store explicit facts, preferences, and decisions (`xmemo_remember`).
 - **Working state with TTL** — save active task, next action, or blocker so future sessions can resume (`xmemo_update_state`).
 - **Built-in memory mirroring** — when Hermes' native `memory` tool writes, the same fact is mirrored to XMemo.
 - **Session snapshots** — captures a restart snapshot at session end for later restoration by compatible XMemo workflows.
 - **Reminders & timeline** — optional workflow tools for TODOs and timeline events (opt-in via config).
-- **Profile isolation** — each Hermes profile uses its own `xmemo.json` and scoped memories.
+- **Hermes write scoping** — new Hermes-authored memories are written to the configured Hermes scope so provenance stays clear.
 - **Resilient by default** — circuit breaker pauses API calls after consecutive failures; background prefetch/sync never block the chat.
 
 ## Install
@@ -102,6 +102,8 @@ cp -r src/hermes_xmemo/xmemo "${HERMES_HOME:-$HOME/.hermes}/plugins/"
 hermes memory setup xmemo
 ```
 
+The setup wizard only asks for your XMemo token.
+
 Or manually:
 
 ```bash
@@ -117,7 +119,7 @@ echo "XMEMO_KEY=your-token" >> "${HERMES_HOME:-$HOME/.hermes}/.env"
 
 ## How it works
 
-1. **Before the turn** — Hermes calls `prefetch()` to retrieve relevant XMemo context and injects it into the conversation.
+1. **Before the turn** — Hermes calls `prefetch()` to retrieve relevant XMemo context across visible memories in your XMemo account and injects it into the conversation.
 2. **During the turn** — the agent can call explicit XMemo tools (`xmemo_search`, `xmemo_remember`, etc.).
 3. **After the turn** — high-signal turns can be recorded to the XMemo timeline if `capture_timeline` is enabled.
 4. **Session end** — a restart snapshot is captured for later restoration by compatible XMemo workflows.
@@ -126,15 +128,17 @@ Automatic prefetch, turn sync, and session snapshots run in the background. Expl
 
 ## Configure
 
-Edit `$HERMES_HOME/xmemo.json`:
+Most users do not need this section. Advanced settings are available in
+`$HERMES_HOME/xmemo.json`:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `base_url` | `https://xmemo.dev` | XMemo service URL |
 | `agent_id` | `hermes` | Agent family identifier |
 | `agent_instance_id` | auto-generated | Stable, opaque install identifier |
-| `bucket` | `work` | Storage namespace |
-| `scope` | `hermes/default` | Project/session scope |
+| `bucket` | `work` | Storage namespace for new Hermes-authored writes |
+| `scope` | `hermes/default` | Scope for new Hermes-authored writes |
+| `read_bucket` | `%` | Bucket filter for recall/search (`%` = all visible buckets) |
+| `read_scope` | unset | Scope filter for recall/search (unset = all visible scopes) |
 | `timeout_seconds` | `5.0` | REST request timeout |
 | `prefetch_max_items` | `5` | Max context items per recall |
 | `prefetch_max_tokens` | `900` | Max context tokens per recall |
@@ -149,11 +153,12 @@ You can override most settings via environment variables (useful for CI or conta
 | Variable | Overrides |
 |----------|-----------|
 | `XMEMO_KEY` | API key (required; `MEMORY_OS_API_KEY` is also accepted) |
-| `XMEMO_URL` | `base_url` (`MEMORY_OS_URL` is also accepted) |
 | `XMEMO_AGENT_ID` | `agent_id` |
 | `XMEMO_AGENT_INSTANCE_ID` | `agent_instance_id` |
 | `XMEMO_BUCKET` | `bucket` |
 | `XMEMO_SCOPE` | `scope` |
+| `XMEMO_READ_BUCKET` | `read_bucket` |
+| `XMEMO_READ_SCOPE` | `read_scope` |
 | `XMEMO_TIMEOUT_SECONDS` | `timeout_seconds` |
 | `XMEMO_PREFETCH_MAX_ITEMS` | `prefetch_max_items` |
 | `XMEMO_PREFETCH_MAX_TOKENS` | `prefetch_max_tokens` |

@@ -1,5 +1,5 @@
 name: xmemo
-version: 1.0.0
+version: 1.0.1
 description: "XMemo — native Hermes memory provider for user-owned cloud memory, orchestrated recall, semantic search, durable fact storage, working state, and session snapshots."
 pip_dependencies:
   - httpx
