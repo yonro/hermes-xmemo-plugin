@@ -1,4 +1,4 @@
-# XMemo Memory Provider for Hermes Agent
+# XMemo Hermes Agent Memory Provider Plugin
 
 [XMemo](https://xmemo.dev) is an identity-aware memory layer for AI agents: one persistent, user-owned memory space that works across ChatGPT, Copilot, Claude, Codex, Gemini, and here — Hermes Agent. Every memory entry knows who wrote it, so you can recall, audit, and control context without confusion or spillover.
 
