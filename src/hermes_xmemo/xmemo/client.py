@@ -63,6 +63,14 @@ class XMemoClient:
             client_kwargs["transport"] = transport
         self._client = httpx.Client(**client_kwargs)
 
+    # Transient error types that justify a retry.
+    _TRANSIENT_EXCEPTIONS = (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.ReadTimeout,
+        httpx.RemoteProtocolError,
+    )
+
     def _request(
         self,
         method: str,
@@ -70,35 +78,96 @@ class XMemoClient:
         *,
         params: Optional[Dict[str, Any]] = None,
         json_body: Optional[Dict[str, Any]] = None,
+        max_attempts: int = 3,
+        initial_delay: float = 0.5,
+        backoff: float = 2.0,
     ) -> Any:
-        """Make a synchronous request and return parsed JSON."""
+        """Make a synchronous request with exponential-backoff retry.
+
+        Retries on transient errors only (connection failures, timeouts,
+        protocol errors, and HTTP 5xx).  Client errors (4xx) are raised
+        immediately without retry.
+        """
+        import time as _time  # stdlib; avoids module-level import cycle
+
+        # Only retry read operations to avoid non-idempotent write duplication.
+        is_read = (method == "GET") or (method == "POST" and path == "/v1/recall/context")
+        if not is_read:
+            max_attempts = 1
+
         url = f"{self.base_url}{path}"
-        try:
-            response = self._client.request(
-                method=method,
-                url=url,
-                params=params,
-                json=json_body,
-            )
-            response.raise_for_status()
-            if response.status_code == 204 or not response.content:
-                return {}
-            return response.json()
-        except httpx.HTTPStatusError as exc:
-            body = None
+        last_exc: Optional[Exception] = None
+        delay = initial_delay
+
+        for attempt in range(1, max_attempts + 1):
             try:
-                body = exc.response.json()
-            except Exception:
-                body = exc.response.text
-            logger.debug("XMemo API error: %s %s -> %s: %s", method, path, exc.response.status_code, body)
-            raise XMemoClientError(
-                f"XMemo API error {exc.response.status_code}: {body}",
-                status_code=exc.response.status_code,
-                response_body=body,
-            ) from exc
-        except Exception as exc:
-            logger.debug("XMemo request failed: %s %s -> %s", method, path, exc)
-            raise XMemoClientError(f"XMemo request failed: {exc}") from exc
+                response = self._client.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=json_body,
+                )
+                response.raise_for_status()
+                if response.status_code == 204 or not response.content:
+                    return {}
+                return response.json()
+
+            except httpx.HTTPStatusError as exc:
+                body = None
+                try:
+                    body = exc.response.json()
+                except Exception:
+                    body = exc.response.text
+                status = exc.response.status_code
+
+                # 5xx → transient, eligible for retry
+                if status >= 500 and attempt < max_attempts:
+                    logger.debug(
+                        "XMemo API 5xx (attempt %d/%d): %s %s -> %s, retrying in %.1fs",
+                        attempt, max_attempts, method, path, status, delay,
+                    )
+                    last_exc = XMemoClientError(
+                        f"XMemo API error {status}: {body}",
+                        status_code=status,
+                        response_body=body,
+                    )
+                    _time.sleep(delay)
+                    delay *= backoff
+                    continue
+
+                # 4xx or final 5xx attempt → raise immediately
+                logger.debug("XMemo API error: %s %s -> %s: %s", method, path, status, body)
+                raise XMemoClientError(
+                    f"XMemo API error {status}: {body}",
+                    status_code=status,
+                    response_body=body,
+                ) from exc
+
+            except self._TRANSIENT_EXCEPTIONS as exc:
+                last_exc = XMemoClientError(f"XMemo request failed: {exc}")
+                if attempt < max_attempts:
+                    logger.debug(
+                        "XMemo transient error (attempt %d/%d): %s %s -> %s, retrying in %.1fs",
+                        attempt, max_attempts, method, path, exc, delay,
+                    )
+                    _time.sleep(delay)
+                    delay *= backoff
+                    continue
+                logger.debug(
+                    "XMemo request failed after %d attempts: %s %s -> %s",
+                    max_attempts, method, path, exc,
+                )
+                raise last_exc from exc
+
+            except Exception as exc:
+                # Non-transient (e.g. JSON decode, programming error) → fail fast
+                logger.debug("XMemo request failed: %s %s -> %s", method, path, exc)
+                raise XMemoClientError(f"XMemo request failed: {exc}") from exc
+
+        # Should not reach here, but satisfy the type checker.
+        assert last_exc is not None  # noqa: S101
+        raise last_exc
+
 
     def health(self) -> Dict[str, Any]:
         """Check service health."""

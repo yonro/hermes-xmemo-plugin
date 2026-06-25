@@ -467,6 +467,11 @@ class XMemoMemoryProvider(MemoryProvider):
         self._consecutive_failures = 0
         self._breaker_open_until = 0.0
 
+        # Provider status tracking (P0)
+        self._status = "unknown"  # online | degraded | offline | unknown
+        self._last_success_at = 0.0
+        self._last_error = ""
+
         # Session / runtime metadata
         self._session_id = ""
         self._turn_count = 0
@@ -521,17 +526,23 @@ class XMemoMemoryProvider(MemoryProvider):
 
     def _record_success(self) -> None:
         self._consecutive_failures = 0
+        self._status = "online"
+        self._last_success_at = time.monotonic()
 
-    def _record_failure(self) -> None:
+    def _record_failure(self, error: str = "") -> None:
         self._consecutive_failures += 1
+        self._last_error = error or "unknown error"
         if self._consecutive_failures >= _BREAKER_THRESHOLD:
             self._breaker_open_until = time.monotonic() + _BREAKER_COOLDOWN_SECONDS
+            self._status = "offline"
             logger.warning(
                 "XMemo circuit breaker tripped after %d consecutive failures. "
                 "Pausing API calls for %ds.",
                 self._consecutive_failures,
                 _BREAKER_COOLDOWN_SECONDS,
             )
+        else:
+            self._status = "degraded"
 
     def _get_client(self) -> XMemoClient:
         """Thread-safe client accessor with lazy initialization."""
@@ -606,18 +617,39 @@ class XMemoMemoryProvider(MemoryProvider):
             self._record_success()
         except Exception as exc:
             logger.debug("XMemo health check failed (non-blocking): %s", exc)
+            self._record_failure(str(exc))
 
     def system_prompt_block(self) -> str:
-        """Return static provider instructions for the system prompt."""
+        """Return provider instructions for the system prompt, including live status."""
         if not self._config.get("api_key"):
             return ""
         scope = self._config.get("scope", "hermes/default")
+
+        # Status line varies by provider state.
+        status = self._status
+        if status == "online" or status == "unknown":
+            status_line = (
+                "XMemo status: online. "
+                "Recall/search reads all visible user-owned XMemo memories across connected agents."
+            )
+        elif status == "degraded":
+            status_line = (
+                "XMemo status: degraded. "
+                "Remote recall may be temporarily unavailable. "
+                "Do not assume the user has no saved memories just because recall is empty."
+            )
+        else:  # offline
+            status_line = (
+                "XMemo status: offline. "
+                "Memory service is temporarily unavailable. "
+                "Do not overwrite or forget user memory based only on missing recall results."
+            )
+
         return (
             "# XMemo Memory\n"
-            "Active. User-owned cloud memory is available.\n"
+            f"{status_line}\n"
             f"New Hermes memories are written to scope: {scope}.\n"
-            "Search and recall read all visible user-owned XMemo memories across connected agents by default; "
-            "use agent_boundary/provenance metadata to distinguish self vs other_agent memories. "
+            "Use agent_boundary/provenance metadata to distinguish self vs other_agent memories. "
             "Use xmemo_search to recall saved facts before answering. "
             "Use xmemo_remember to store durable facts (preferences, decisions, conventions, action items). "
             "Use xmemo_update_state to save the current task state with TTL."
@@ -677,7 +709,7 @@ class XMemoMemoryProvider(MemoryProvider):
                         self._prefetch_results[key] = text
                 self._record_success()
             except Exception as exc:
-                self._record_failure()
+                self._record_failure(str(exc))
                 logger.debug("XMemo prefetch failed: %s", exc)
 
         t = threading.Thread(target=_run, daemon=True, name=f"xmemo-prefetch-{key}")
@@ -722,7 +754,7 @@ class XMemoMemoryProvider(MemoryProvider):
             )
             self._record_success()
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             logger.debug("XMemo sync_turn failed: %s", exc)
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -744,7 +776,9 @@ class XMemoMemoryProvider(MemoryProvider):
         """Route a tool call to the correct XMemo API."""
         if self._is_breaker_open():
             return json.dumps({
-                "error": "XMemo API temporarily unavailable after multiple failures. Will retry automatically."
+                "status": "offline",
+                "error": "XMemo API temporarily unavailable after multiple failures. Will retry automatically.",
+                "note": "Do not assume the user has no saved memories. The service will recover shortly.",
             })
 
         try:
@@ -803,7 +837,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "count": len(results),
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo search failed: {exc}")
 
     def _handle_remember(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -838,7 +872,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "memory_id": memory_id,
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo remember failed: {exc}")
 
     def _handle_update_state(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -869,7 +903,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "id": result.get("id") if isinstance(result, dict) else None,
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo update_state failed: {exc}")
 
     def _handle_recall_context(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -902,7 +936,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "items": context.get("items", []) if isinstance(context, dict) else [],
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo recall_context failed: {exc}")
 
     def _handle_record_event(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -926,7 +960,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "event_id": result.get("id") if isinstance(result, dict) else None,
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo record_event failed: {exc}")
 
     def _handle_create_reminder(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -950,7 +984,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "todo_id": result.get("id") if isinstance(result, dict) else None,
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo create_reminder failed: {exc}")
 
     def _handle_list_reminders(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -975,7 +1009,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "count": len(items),
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo list_reminders failed: {exc}")
 
     def _handle_complete_reminder(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -998,7 +1032,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "todo_id": result.get("id") if isinstance(result, dict) else todo_id,
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo complete_reminder failed: {exc}")
 
     def _handle_mark_used(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -1019,7 +1053,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "memory_id": result.get("id") if isinstance(result, dict) else memory_id,
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo mark_used failed: {exc}")
 
     def _handle_forget(self, client: XMemoClient, args: Dict[str, Any]) -> str:
@@ -1042,7 +1076,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 "memory_id": result.get("id") if isinstance(result, dict) else memory_id,
             })
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             return tool_error(f"XMemo forget failed: {exc}")
 
     def shutdown(self) -> None:
@@ -1115,7 +1149,7 @@ class XMemoMemoryProvider(MemoryProvider):
             )
             self._record_success()
         except Exception as exc:
-            self._record_failure()
+            self._record_failure(str(exc))
             logger.debug("XMemo on_memory_write mirror failed: %s", exc)
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
@@ -1135,7 +1169,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 )
                 self._record_success()
             except Exception as exc:
-                self._record_failure()
+                self._record_failure(str(exc))
                 logger.debug("XMemo session-end snapshot failed: %s", exc)
 
         self._snapshot_thread = threading.Thread(
