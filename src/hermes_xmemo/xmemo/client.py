@@ -24,10 +24,27 @@ def _drop_none(values: Dict[str, Any]) -> Dict[str, Any]:
 class XMemoClientError(Exception):
     """Raised when an XMemo API call fails."""
 
-    def __init__(self, message: str, status_code: int = 0, response_body: Any = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 0,
+        response_body: Any = None,
+        is_transient: Optional[bool] = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
         self.response_body = response_body
+
+        if is_transient is not None:
+            self.is_transient = is_transient
+        else:
+            # Infer transience from status_code
+            if status_code >= 500:
+                self.is_transient = True
+            elif 400 <= status_code < 500:
+                self.is_transient = False
+            else:
+                self.is_transient = False
 
 
 class XMemoClient:
@@ -81,6 +98,7 @@ class XMemoClient:
         max_attempts: int = 3,
         initial_delay: float = 0.5,
         backoff: float = 2.0,
+        idempotency_key: Optional[str] = None,
     ) -> Any:
         """Make a synchronous request with exponential-backoff retry.
 
@@ -99,13 +117,27 @@ class XMemoClient:
         last_exc: Optional[Exception] = None
         delay = initial_delay
 
+        # Prepare request body (non-mutating copy)
+        body = None
+        if json_body is not None or idempotency_key is not None:
+            body = dict(json_body) if isinstance(json_body, dict) else {}
+            if idempotency_key:
+                body["idempotency_key"] = idempotency_key
+
+        # Prepare request headers
+        req_headers = {}
+        if idempotency_key:
+            req_headers["Idempotency-Key"] = idempotency_key
+            req_headers["X-Idempotency-Key"] = idempotency_key
+
         for attempt in range(1, max_attempts + 1):
             try:
                 response = self._client.request(
                     method=method,
                     url=url,
                     params=params,
-                    json=json_body,
+                    json=body,
+                    headers=req_headers if req_headers else None,
                 )
                 response.raise_for_status()
                 if response.status_code == 204 or not response.content:
@@ -113,11 +145,11 @@ class XMemoClient:
                 return response.json()
 
             except httpx.HTTPStatusError as exc:
-                body = None
+                resp_body = None
                 try:
-                    body = exc.response.json()
+                    resp_body = exc.response.json()
                 except Exception:
-                    body = exc.response.text
+                    resp_body = exc.response.text
                 status = exc.response.status_code
 
                 # 5xx → transient, eligible for retry
@@ -127,24 +159,26 @@ class XMemoClient:
                         attempt, max_attempts, method, path, status, delay,
                     )
                     last_exc = XMemoClientError(
-                        f"XMemo API error {status}: {body}",
+                        f"XMemo API error {status}: {resp_body}",
                         status_code=status,
-                        response_body=body,
+                        response_body=resp_body,
+                        is_transient=True,
                     )
                     _time.sleep(delay)
                     delay *= backoff
                     continue
 
                 # 4xx or final 5xx attempt → raise immediately
-                logger.debug("XMemo API error: %s %s -> %s: %s", method, path, status, body)
+                logger.debug("XMemo API error: %s %s -> %s: %s", method, path, status, resp_body)
                 raise XMemoClientError(
-                    f"XMemo API error {status}: {body}",
+                    f"XMemo API error {status}: {resp_body}",
                     status_code=status,
-                    response_body=body,
+                    response_body=resp_body,
+                    is_transient=(status >= 500),
                 ) from exc
 
             except self._TRANSIENT_EXCEPTIONS as exc:
-                last_exc = XMemoClientError(f"XMemo request failed: {exc}")
+                last_exc = XMemoClientError(f"XMemo request failed: {exc}", is_transient=True)
                 if attempt < max_attempts:
                     logger.debug(
                         "XMemo transient error (attempt %d/%d): %s %s -> %s, retrying in %.1fs",
@@ -162,7 +196,7 @@ class XMemoClient:
             except Exception as exc:
                 # Non-transient (e.g. JSON decode, programming error) → fail fast
                 logger.debug("XMemo request failed: %s %s -> %s", method, path, exc)
-                raise XMemoClientError(f"XMemo request failed: {exc}") from exc
+                raise XMemoClientError(f"XMemo request failed: {exc}", is_transient=False) from exc
 
         # Should not reach here, but satisfy the type checker.
         assert last_exc is not None  # noqa: S101
@@ -242,6 +276,7 @@ class XMemoClient:
         confidence: Optional[float] = None,
         dedupe: bool = True,
         semantic_key: str = "",
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Save a durable fact to XMemo."""
         payload: Dict[str, Any] = {
@@ -258,7 +293,9 @@ class XMemoClient:
             payload["confidence"] = confidence
         if semantic_key:
             payload["semantic_key"] = semantic_key
-        return self._request("POST", "/v1/remember", json_body=payload)
+        return self._request(
+            "POST", "/v1/remember", json_body=payload, idempotency_key=idempotency_key
+        )
 
     def update_state(
         self,
@@ -271,6 +308,7 @@ class XMemoClient:
         bucket: str = "work",
         scope: str = "hermes/default",
         ttl_seconds: int = 86400,
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist active working state with TTL."""
         payload: Dict[str, Any] = {
@@ -287,7 +325,9 @@ class XMemoClient:
             payload["next_action"] = next_action
         if blocked_reason:
             payload["blocked_reason"] = blocked_reason
-        return self._request("POST", "/v1/update_state", json_body=payload)
+        return self._request(
+            "POST", "/v1/update_state", json_body=payload, idempotency_key=idempotency_key
+        )
 
     def record_event(
         self,
@@ -297,6 +337,7 @@ class XMemoClient:
         bucket: str = "work",
         scope: str = "hermes/default",
         session_id: str = "",
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Append a timeline event."""
         payload: Dict[str, Any] = {
@@ -307,7 +348,9 @@ class XMemoClient:
         }
         if session_id:
             payload["session_id"] = session_id
-        return self._request("POST", "/v1/timeline/events", json_body=payload)
+        return self._request(
+            "POST", "/v1/timeline/events", json_body=payload, idempotency_key=idempotency_key
+        )
 
     def create_restart_snapshot(
         self,
@@ -316,6 +359,7 @@ class XMemoClient:
         bucket: str = "work",
         scope: str = "hermes/default",
         state_key: str = "active_task",
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Capture a restart snapshot before handoff or shutdown."""
         payload: Dict[str, Any] = {
@@ -325,7 +369,9 @@ class XMemoClient:
         }
         if session_id:
             payload["session_id"] = session_id
-        return self._request("POST", "/v1/restart/snapshot", json_body=payload)
+        return self._request(
+            "POST", "/v1/restart/snapshot", json_body=payload, idempotency_key=idempotency_key
+        )
 
     def create_reminder(
         self,
@@ -335,6 +381,7 @@ class XMemoClient:
         scope: str = "hermes/default",
         due_at: str = "",
         session_id: str = "",
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a TODO/action item to revisit later."""
         payload: Dict[str, Any] = {
@@ -346,7 +393,9 @@ class XMemoClient:
             payload["due_at"] = due_at
         if session_id:
             payload["session_id"] = session_id
-        return self._request("POST", "/v1/reminders", json_body=payload)
+        return self._request(
+            "POST", "/v1/reminders", json_body=payload, idempotency_key=idempotency_key
+        )
 
     def list_reminders(
         self,
@@ -380,13 +429,17 @@ class XMemoClient:
         bucket: str = "%",
         scope: Optional[str] = None,
         note: str = "",
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Mark a TODO item as completed."""
         payload: Dict[str, Any] = _drop_none({"bucket": bucket, "scope": scope})
         if note:
             payload["note"] = note
         return self._request(
-            "POST", f"/v1/reminders/{todo_id}/complete", json_body=payload
+            "POST",
+            f"/v1/reminders/{todo_id}/complete",
+            json_body=payload,
+            idempotency_key=idempotency_key,
         )
 
     def mark_used(
@@ -397,6 +450,7 @@ class XMemoClient:
         action: str = "used",
         usage_tracking_id: str = "",
         metadata: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Record that a recalled memory was used in the answer.
 
@@ -411,7 +465,10 @@ class XMemoClient:
         if metadata:
             payload["metadata"] = metadata
         return self._request(
-            "POST", f"/v1/memories/{memory_id}/usage", json_body=payload
+            "POST",
+            f"/v1/memories/{memory_id}/usage",
+            json_body=payload,
+            idempotency_key=idempotency_key,
         )
 
     def forget(
@@ -421,13 +478,17 @@ class XMemoClient:
         bucket: str = "%",
         scope: Optional[str] = None,
         reason: str = "",
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Delete a memory by exact id."""
         payload: Dict[str, Any] = _drop_none({"bucket": bucket, "scope": scope})
         if reason:
             payload["reason"] = reason
         return self._request(
-            "POST", f"/v1/memories/{memory_id}/forget", json_body=payload
+            "POST",
+            f"/v1/memories/{memory_id}/forget",
+            json_body=payload,
+            idempotency_key=idempotency_key,
         )
 
     def close(self) -> None:

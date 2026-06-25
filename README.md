@@ -203,6 +203,37 @@ Set `enable_destructive_tools: true` to expose:
 - Built-in `memory` tool writes are mirrored to XMemo only when the provider is active.
 - Prefetch cache is isolated per session, so concurrent gateway sessions cannot cross-contaminate recall context.
 
+## Reliability, Local Cache & Outbox
+
+To improve availability and reduce data-loss risk during temporary XMemo API outages, the plugin implements a local reliability layer using a SQLite database (`xmemo_cache.db` located in `$HERMES_HOME`).
+
+### 1. Read Cache Fallback
+- **Authoritative Cloud Priority**: When online, the plugin always queries the XMemo cloud first to ensure absolute freshness.
+- **Lightweight Caching**: Successful query results (`xmemo_search`, `xmemo_recall_context`, and background prefetches) are cached locally with a **5-minute fresh TTL**.
+- **Stale Fallback**: If the XMemo cloud is unreachable (transient connection failures, timeouts, or HTTP 5xx errors), the plugin automatically falls back to the local cache, provided the cached data is less than **24 hours old** (`max_stale_until`). Fallback results are returned with `stale: true` and `source: "cache"` markers to inform the agent of their status.
+
+### 2. Write Outbox & Idempotency
+- **Failover Queueing**: When a write operation (e.g., saving a fact, updating state, recording an event) fails due to a transient network error, it is automatically enqueued into a local outbox.
+- **Outbox Status Routing**:
+  - **Idempotent Writes** (`xmemo_remember`, `xmemo_update_state`): Enqueued as `'pending'` and automatically replayed by a background sync daemon using exponential backoff (up to 5 retries, capped at a maximum delay of 1 hour).
+  - **Non-Idempotent Writes** (`xmemo_record_event`, `xmemo_create_reminder`, etc.): By default, these enter a `'held'` status and are **not** replayed automatically (unless `enable_non_idempotent_replay: true` is set in `xmemo.json`), protecting the server from duplicate entries.
+- **Idempotency Standards**: Every write operation generates a stable, unique idempotency key (UUID) at initiation. This key is preserved and sent in the `Idempotency-Key` and `X-Idempotency-Key` headers, as well as the JSON body, on all retries and replays, allowing the XMemo server to deduplicate requests.
+- **Dead-Lettering**: If an outbox write fails with a permanent non-transient error (e.g., HTTP 4xx validation or auth errors) or exhausts all 5 retry attempts, it is immediately moved to `'failed'` (dead-lettered) status with the error message recorded in the database.
+
+### 3. Privacy, Retention & Diagnostics
+- **Payload Security**:
+  > [!WARNING]
+  > The local `xmemo_cache.db` database file stores copies of cached recall responses and queued outbox payloads in plain-text JSON. No credentials or API keys are ever cached or written to this database. To protect this sensitive data, secure the `$HERMES_HOME` directory and restrict file access to the owner process.
+- **Database Retention & Cleanup**:
+  - Successfully synchronized writes (`'sent'`) are automatically pruned from the outbox after **24 hours**.
+  - Failed/dead-lettered outbox writes (`'failed'`) are automatically deleted after **7 days**, and the dead-letter queue is capped at a maximum of **100 records** to prevent database bloating.
+- **Diagnostic Controls**:
+  If you need to clear the local cache or outbox (for troubleshooting or privacy reasons), the plugin provides programmatic controls via the `XMemoLocalCache` class:
+  - `local_cache.clear_cache()`: Safe to call at any time. Instantly clears all cached read queries.
+  - `local_cache.clear_outbox()`: Instantly purges all queued write operations.
+    > [!CAUTION]
+    > Wiping the outbox will permanently delete any pending or held write operations that have not yet synchronized to the XMemo cloud.
+
 ## Uninstall or disable
 
 To disable XMemo without removing files:
