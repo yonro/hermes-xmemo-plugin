@@ -25,9 +25,20 @@ class XMemoLocalCache:
             try:
                 from hermes_constants import get_hermes_home
                 db_path = get_hermes_home() / "xmemo_cache.db"
-            except Exception:
-                # Fallback for testing or standalone execution
-                db_path = Path("xmemo_cache.db")
+            except Exception as exc:
+                # hermes_constants is unavailable (e.g. standalone scripts or a
+                # broken environment). Anchor the fallback to a fixed absolute
+                # location instead of a CWD-relative path so the outbox queue
+                # does not fragment across working directories, and surface the
+                # degradation rather than failing silently.
+                db_path = Path.home() / ".hermes" / "xmemo_cache.db"
+                logger.warning(
+                    "hermes_constants unavailable (%s); falling back to %s for the "
+                    "XMemo local cache. Queued offline writes may not be visible to "
+                    "the Hermes runtime if it resolves a different path.",
+                    exc,
+                    db_path,
+                )
         self.db_path = db_path
         self._init_db()
 
