@@ -128,10 +128,24 @@ def _run_schema_setup(
                 provider_config[key] = choices[sel]
             elif is_secret:
                 existing = os.environ.get(env_var, "") if env_var else ""
+                existing_source = f"env:{env_var}" if existing and env_var else ""
+                if not existing:
+                    try:
+                        from .config import _resolve_api_key
+
+                        existing, existing_source = _resolve_api_key()
+                    except Exception:
+                        existing, existing_source = "", ""
                 if existing:
                     masked = f"...{existing[-4:]}" if len(existing) > 4 else "set"
+                    source_label = (
+                        "shared XMemo login"
+                        if existing_source == "shared-credential"
+                        else existing_source or "configured"
+                    )
                     val = _prompt(
-                        f"{desc} (current: {masked}, blank to keep)", secret=True
+                        f"{desc} (current: {masked} from {source_label}, blank to keep)",
+                        secret=True,
                     )
                 else:
                     if url:

@@ -1,8 +1,9 @@
 """XMemo provider configuration loader.
 
 Reads settings from (highest to lowest priority):
-  1. Environment variables: XMEMO_KEY, MEMORY_OS_API_KEY
-  2. $HERMES_HOME/xmemo.json for non-secret values only
+  1. Environment variables: XMEMO_KEY, MEMORY_OS_API_KEY, MEMORY_OS_MCP_TOKEN
+  2. The user-scoped XMemo CLI credential file used by @xmemo/client
+  3. $HERMES_HOME/xmemo.json for non-secret values only
 
 Secrets (api_key) are NEVER read from xmemo.json. If a stale api_key is found
 in the file it is ignored and will be removed on the next save_config().
@@ -15,7 +16,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from hermes_constants import get_hermes_home
 
@@ -61,6 +62,49 @@ def _load_file_cfg() -> Dict[str, Any]:
     return data
 
 
+def _xmemo_config_root() -> Path:
+    """Return the shared @xmemo/client config root."""
+    if os.environ.get("XMEMO_CONFIG_HOME"):
+        return Path(os.environ["XMEMO_CONFIG_HOME"]).expanduser()
+    if os.environ.get("MEMORY_OS_CONFIG_HOME"):
+        return Path(os.environ["MEMORY_OS_CONFIG_HOME"]).expanduser()
+    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        return Path(os.environ["LOCALAPPDATA"]) / "XMemo" / "CLI"
+    if os.environ.get("XDG_CONFIG_HOME"):
+        return Path(os.environ["XDG_CONFIG_HOME"]).expanduser() / "xmemo"
+    return Path.home() / ".config" / "xmemo"
+
+
+def _load_shared_credential_token() -> Tuple[str, str]:
+    """Read the token saved by `xmemo login` / `xmemo token add`.
+
+    The file is user-scoped and managed by @xmemo/client. It is a compatibility
+    fallback only: explicit Hermes environment variables still win.
+    """
+    credential_path = _xmemo_config_root() / "credentials.json"
+    if not credential_path.exists():
+        return "", "missing"
+    try:
+        data = json.loads(credential_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        logger.debug("Failed to read shared XMemo credential %s: %s", credential_path, exc)
+        return "", "invalid-shared-credential"
+
+    token = data.get("token")
+    if isinstance(token, str) and token:
+        return token, "shared-credential"
+    return "", "missing-token-in-shared-credential"
+
+
+def _resolve_api_key() -> Tuple[str, str]:
+    """Resolve the credential without writing files or leaking secrets."""
+    for env_var in ("XMEMO_KEY", "MEMORY_OS_API_KEY", "MEMORY_OS_MCP_TOKEN"):
+        value = os.environ.get(env_var)
+        if value:
+            return value, f"env:{env_var}"
+    return _load_shared_credential_token()
+
+
 def load_config(*, create_instance: bool = False) -> Dict[str, Any]:
     """Load XMemo provider configuration.
 
@@ -71,7 +115,7 @@ def load_config(*, create_instance: bool = False) -> Dict[str, Any]:
     """
     file_cfg = _load_file_cfg()
 
-    api_key = os.environ.get("XMEMO_KEY") or os.environ.get("MEMORY_OS_API_KEY", "")
+    api_key, credential_source = _resolve_api_key()
 
     base_url = (
         os.environ.get("XMEMO_URL")
@@ -124,6 +168,7 @@ def load_config(*, create_instance: bool = False) -> Dict[str, Any]:
 
     config = {
         "api_key": api_key,
+        "credential_source": credential_source,
         "base_url": base_url,
         "agent_id": agent_id,
         "agent_instance_id": agent_instance_id,

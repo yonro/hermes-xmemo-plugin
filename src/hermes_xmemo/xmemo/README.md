@@ -29,11 +29,27 @@ memory in the same account.
 
 ## Setup
 
+Recommended shared-credential setup:
+
+```bash
+npm install -g @xmemo/client
+xmemo login
+xmemo setup hermes
+```
+
+This installs/updates the native Hermes plugin, reuses the user-scoped
+credential stored by `@xmemo/client`, and syncs it to Hermes' existing `.env`
+location for compatibility. Hosted MCP is optional and uses
+`xmemo setup hermes --with-mcp`.
+
+The original Hermes-native setup remains supported:
+
 ```bash
 hermes memory setup xmemo
 ```
 
-The setup wizard only asks for your XMemo token.
+If a shared `xmemo login` credential already exists, the setup wizard can reuse
+it. Otherwise, it asks for your XMemo token as before.
 
 This writes:
 

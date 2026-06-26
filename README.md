@@ -59,18 +59,31 @@ public listing or review evidence.
 
 Hermes looks for memory provider plugins in `$HERMES_HOME/plugins/<name>/`. The default `HERMES_HOME` is `~/.hermes`.
 
-### pip install (recommended)
+### XMemo CLI setup (recommended)
+
+```bash
+npm install -g @xmemo/client
+xmemo login
+xmemo setup hermes
+```
+
+`xmemo setup hermes` installs or updates `hermes-xmemo`, runs
+`hermes-xmemo install`, and syncs the shared XMemo credential to Hermes.
+
+To install to a non-default Hermes home:
+
+```bash
+xmemo setup hermes --hermes-home /path/to/your/hermes-home
+```
+
+### pip install
+
+Use this lower-level path when you do not want `@xmemo/client` to manage setup:
 
 ```bash
 pip install hermes-xmemo
 hermes-xmemo install
 hermes memory setup xmemo
-```
-
-To install to a non-default Hermes home:
-
-```bash
-HERMES_HOME=/path/to/your/hermes-home hermes-xmemo install
 ```
 
 ### One-liner (no pip)
@@ -98,11 +111,27 @@ cp -r src/hermes_xmemo/xmemo "${HERMES_HOME:-$HOME/.hermes}/plugins/"
 
 ### Configure
 
+Recommended shared-credential setup:
+
+```bash
+xmemo login
+xmemo setup hermes
+```
+
+This uses the same user-scoped credential as `@xmemo/client`, syncs it to
+Hermes' existing `$HERMES_HOME/.env` `XMEMO_KEY` location for compatibility,
+and installs/updates the native Hermes plugin. Hosted MCP is not installed by
+default; use `xmemo setup hermes --with-mcp` only when you want that fallback.
+
+The original Hermes-native setup remains supported:
+
 ```bash
 hermes memory setup xmemo
 ```
 
-The setup wizard only asks for your XMemo token.
+If `xmemo login` or `xmemo token add --from-stdin` has already stored a shared
+credential, the setup wizard can reuse it. If not, it asks for your XMemo token
+and writes `XMEMO_KEY` to `$HERMES_HOME/.env` as before.
 
 Or manually:
 
@@ -152,7 +181,7 @@ You can override most settings via environment variables (useful for CI or conta
 
 | Variable | Overrides |
 |----------|-----------|
-| `XMEMO_KEY` | API key (required; `MEMORY_OS_API_KEY` is also accepted) |
+| `XMEMO_KEY` | API key (highest priority; `MEMORY_OS_API_KEY` and `MEMORY_OS_MCP_TOKEN` are also accepted) |
 | `XMEMO_AGENT_ID` | `agent_id` |
 | `XMEMO_AGENT_INSTANCE_ID` | `agent_instance_id` |
 | `XMEMO_BUCKET` | `bucket` |
@@ -197,7 +226,11 @@ Set `enable_destructive_tools: true` to expose:
 
 ## Privacy & security
 
-- API keys live in `$HERMES_HOME/.env`, never in `xmemo.json`.
+- API keys live in `$HERMES_HOME/.env` or the user-scoped `@xmemo/client`
+  `credentials.json`, never in `xmemo.json`.
+- Credential lookup is backwards compatible: explicit Hermes/process
+  environment variables win, then the shared `@xmemo/client` credential file is
+  used as a fallback.
 - `xmemo_forget` requires an exact memory id and is disabled by default.
 - Automatic timeline writes are disabled by default. When enabled, only high-signal turns (decisions, preferences, blockers, etc.) are recorded.
 - Built-in `memory` tool writes are mirrored to XMemo only when the provider is active.
