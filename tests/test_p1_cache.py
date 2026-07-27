@@ -208,7 +208,10 @@ class TestP1Integration(unittest.TestCase):
         self.assertIsNotNone(cached)
         self.assertEqual(cached["results"], response_data)
 
-        # 2. Transient fail -> Fallback to cache
+        # 2. Fresh TTL elapsed, transient fail -> fallback to stale cache
+        with self.provider._local_cache._get_conn() as conn:
+            conn.execute("UPDATE recall_cache SET fresh_until = ?", (time.time() - 1,))
+
         mock_search.side_effect = XMemoClientError("503 Service Unavailable", status_code=503)
         res_fallback_str = self.provider._handle_search(client, {"query": query, "limit": 5})
         res_fallback = json.loads(res_fallback_str)
@@ -230,6 +233,42 @@ class TestP1Integration(unittest.TestCase):
         self.assertEqual(res_expired["status"], "degraded")
         self.assertIn("no cached copy is available", res_expired["error"])
         self.assertNotIn("results", res_expired)
+
+    @patch("hermes_xmemo.xmemo.client.XMemoClient.search")
+    def test_search_augments_chinese_query_with_english_aliases(self, mock_search):
+        mock_search.return_value = [{"content": "restore plan", "memory_type": "semantic"}]
+        client = self.provider._get_client()
+
+        self.provider._handle_search(client, {"query": "XMemo 删除恢复记忆 改进方案", "limit": 5})
+
+        search_query = mock_search.call_args.kwargs["query"]
+        self.assertIn("delete", search_query)
+        self.assertIn("restore", search_query)
+        self.assertIn("memory", search_query)
+        self.assertIn("improvement", search_query)
+
+    @patch("hermes_xmemo.xmemo.client.XMemoClient.search")
+    def test_search_aliases_do_not_match_inside_english_words(self, mock_search):
+        mock_search.return_value = []
+        client = self.provider._get_client()
+
+        self.provider._handle_search(client, {"query": "planet recoveryless", "limit": 5})
+
+        self.assertEqual(mock_search.call_args.kwargs["query"], "planet recoveryless")
+
+    @patch("hermes_xmemo.xmemo.client.XMemoClient.search")
+    def test_search_uses_fresh_cache_before_online_call(self, mock_search):
+        query = "XMemo 删除恢复记忆 改进方案"
+        mock_search.return_value = [{"content": "cached restore plan", "memory_type": "semantic"}]
+        client = self.provider._get_client()
+
+        first = json.loads(self.provider._handle_search(client, {"query": query, "limit": 5}))
+        second = json.loads(self.provider._handle_search(client, {"query": query, "limit": 5}))
+
+        self.assertEqual(mock_search.call_count, 1)
+        self.assertEqual(first["count"], 1)
+        self.assertEqual(second["source"], "fresh_cache")
+        self.assertEqual(second["results"][0]["content"], "cached restore plan")
 
     @patch("hermes_xmemo.xmemo.client.XMemoClient.remember")
     @patch("hermes_xmemo.xmemo.client.XMemoClient.record_event")

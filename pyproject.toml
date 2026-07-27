@@ -72,7 +72,7 @@ official_marketplace_claim = false
 where = ["src"]
 
 [tool.setuptools.package-data]
-hermes_xmemo = ["xmemo/*", "xmemo/**/*"]
+hermes_xmemo = ["xmemo/README.md", "xmemo/plugin.yaml"]
 
 [tool.setuptools_scm]
 write_to = "src/hermes_xmemo/_version.py"

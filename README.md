@@ -241,8 +241,9 @@ Set `enable_destructive_tools: true` to expose:
 To improve availability and reduce data-loss risk during temporary XMemo API outages, the plugin implements a local reliability layer using a SQLite database (`xmemo_cache.db` located in `$HERMES_HOME`).
 
 ### 1. Read Cache Fallback
-- **Authoritative Cloud Priority**: When online, the plugin always queries the XMemo cloud first to ensure absolute freshness.
-- **Lightweight Caching**: Successful query results (`xmemo_search`, `xmemo_recall_context`, and background prefetches) are cached locally with a **5-minute fresh TTL**.
+- **Bilingual Search Hints**: Common Chinese and English recall concepts are expanded into one compact mixed-language search query, improving semantic retrieval without issuing duplicate API calls.
+- **Fresh Cache Priority**: Repeated `xmemo_search` queries use a matching local result during its **5-minute fresh TTL**, reducing latency and unnecessary API calls.
+- **Lightweight Caching**: Successful query results (`xmemo_search`, `xmemo_recall_context`, and background prefetches) are cached locally.
 - **Stale Fallback**: If the XMemo cloud is unreachable (transient connection failures, timeouts, or HTTP 5xx errors), the plugin automatically falls back to the local cache, provided the cached data is less than **24 hours old** (`max_stale_until`). Fallback results are returned with `stale: true` and `source: "cache"` markers to inform the agent of their status.
 
 ### 2. Write Outbox & Idempotency

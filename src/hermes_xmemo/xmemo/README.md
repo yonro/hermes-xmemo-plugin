@@ -130,3 +130,5 @@ Set `enable_destructive_tools: true` to expose:
 - Hermes built-in `memory` tool writes are mirrored to XMemo `remember`.
 - Prefetch cache is isolated per session, so concurrent gateway sessions cannot
   cross-contaminate recall context.
+- Common Chinese and English search concepts are combined into one compact
+  query, and identical `xmemo_search` calls reuse their 5-minute fresh cache.

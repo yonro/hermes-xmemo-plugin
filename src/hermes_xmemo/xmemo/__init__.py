@@ -30,6 +30,48 @@ _BREAKER_COOLDOWN_SECONDS = 120
 # short because prefetch() runs on the API-call critical path.
 _PREFETCH_JOIN_TIMEOUT_SECONDS = 0.25
 
+_SEARCH_ALIAS_GROUPS = [
+    (
+        ("xmemo", "memory-os", "memory os", "记忆库", "记忆体"),
+        "XMemo Memory OS xmemo memory-os",
+    ),
+    (
+        ("记忆", "回忆", "memory", "memories", "recall"),
+        "memory memories recall saved facts",
+    ),
+    (
+        ("删除", "删掉", "移除", "forget", "delete", "deleted"),
+        "delete deleted forget removal trash",
+    ),
+    (
+        ("恢复", "还原", "找回", "restore", "recover", "recovery"),
+        "restore recover recovery undo",
+    ),
+    (
+        ("改进", "优化", "方案", "计划", "improve", "improvement", "plan"),
+        "improvement plan optimization proposal",
+    ),
+    (
+        ("回收站", "垃圾箱", "trash", "recycle"),
+        "trash recycle bin deleted memories",
+    ),
+    (
+        ("误删", "事故", "incident", "accidental"),
+        "incident accidental deletion recovery",
+    ),
+    (
+        ("chatgpt", "claude", "讨论", "discussion"),
+        "ChatGPT Claude discussion",
+    ),
+]
+
+
+def _matches_search_alias_trigger(text: str, trigger: str) -> bool:
+    """Match phrases/CJK naturally while keeping ASCII words boundary-safe."""
+    if re.fullmatch(r"[a-z0-9_]+", trigger):
+        return re.search(rf"\b{re.escape(trigger)}\b", text) is not None
+    return trigger in text
+
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -42,6 +84,9 @@ SEARCH_SCHEMA = {
         "including memories written by other agents connected to the same XMemo account. "
         "Returns relevant facts ranked by semantic similarity. "
         "Results may include agent_boundary/provenance metadata such as self or other_agent. "
+        "Prefer one mixed multilingual query that combines Chinese and English keywords "
+        "over several paraphrased searches; only retry with a new query if the first "
+        "ranked result set is clearly insufficient. "
         "Use this when the user asks about saved information or when prior "
         "context could change the answer."
     ),
@@ -50,7 +95,10 @@ SEARCH_SCHEMA = {
         "properties": {
             "query": {
                 "type": "string",
-                "description": "What to search for.",
+                "description": (
+                    "What to search for. For Chinese/English topics, put both language "
+                    "variants in one query, e.g. '删除恢复记忆 改进方案 delete restore memory improvement'."
+                ),
             },
             "limit": {
                 "type": "integer",
@@ -329,6 +377,34 @@ def _is_trivial_prompt(text: str) -> bool:
             re.IGNORECASE,
         )
     )
+
+
+def _augment_search_query(query: str) -> str:
+    """Append stable bilingual aliases for common XMemo recall concepts."""
+    cleaned = " ".join(query.split())
+    if not cleaned:
+        return ""
+
+    lowered = cleaned.lower()
+    aliases: List[str] = []
+    for triggers, expansion in _SEARCH_ALIAS_GROUPS:
+        if any(_matches_search_alias_trigger(lowered, trigger) for trigger in triggers):
+            aliases.extend(expansion.split())
+
+    if not aliases:
+        return cleaned
+
+    seen = set(lowered.split())
+    additions = []
+    for alias in aliases:
+        key = alias.lower()
+        if key not in seen:
+            additions.append(alias)
+            seen.add(key)
+
+    if not additions:
+        return cleaned
+    return f"{cleaned} {' '.join(additions)}"
 
 
 def _format_search_results(results: List[Dict[str, Any]]) -> str:
@@ -1132,6 +1208,7 @@ class XMemoMemoryProvider(MemoryProvider):
         query = args.get("query", "").strip()
         if not query:
             return tool_error("Missing required parameter: query")
+        search_query = _augment_search_query(query)
 
         try:
             limit = min(int(args.get("limit", 5)), 20)
@@ -1148,12 +1225,31 @@ class XMemoMemoryProvider(MemoryProvider):
             "base_url": self._config.get("base_url", "https://xmemo.dev"),
         }
 
+        if self._local_cache:
+            try:
+                cached = self._local_cache.get_cached_recall("search", search_query, params)
+                if cached and cached.get("_cache_metadata", {}).get("is_fresh"):
+                    results = cached.get("results", [])
+                    if not results:
+                        return json.dumps({
+                            "source": "fresh_cache",
+                            "result": "No relevant XMemo memories found.",
+                        })
+                    return json.dumps({
+                        "source": "fresh_cache",
+                        "results": results,
+                        "formatted": _format_search_results(results),
+                        "count": len(results),
+                    })
+            except Exception as db_exc:
+                logger.debug("Failed to read fresh search cache: %s", db_exc)
+
         try:
             if self._is_breaker_open():
                 raise Exception("Circuit breaker is open")
 
             results = client.search(
-                query=query,
+                query=search_query,
                 bucket=self._read_bucket(),
                 scope=self._read_scope(),
                 memory_type=memory_type,
@@ -1164,7 +1260,7 @@ class XMemoMemoryProvider(MemoryProvider):
             # Write successful results to cache
             if self._local_cache:
                 try:
-                    self._local_cache.put_cached_recall("search", query, params, {"results": results})
+                    self._local_cache.put_cached_recall("search", search_query, params, {"results": results})
                 except Exception as db_exc:
                     logger.error("Failed to cache search results: %s", db_exc)
 
@@ -1187,7 +1283,7 @@ class XMemoMemoryProvider(MemoryProvider):
 
             if is_transient and self._local_cache:
                 try:
-                    cached = self._local_cache.get_cached_recall("search", query, params)
+                    cached = self._local_cache.get_cached_recall("search", search_query, params)
                     if cached and "results" in cached:
                         results = cached["results"]
                         meta = cached.get("_cache_metadata", {})
