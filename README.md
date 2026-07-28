@@ -1,65 +1,80 @@
-# XMemo Hermes Agent Memory Provider Plugin
+<div align="center">
+  <a href="https://xmemo.dev">
+    <img src="https://raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/assets/icon.png" alt="XMemo" width="112" />
+  </a>
 
-[XMemo](https://xmemo.dev) is an identity-aware memory layer for AI agents: one persistent, user-owned memory space that works across ChatGPT, Copilot, Claude, Codex, Gemini, and here — Hermes Agent. Every memory entry knows who wrote it, so you can recall, audit, and control context without confusion or spillover.
+  <h1>XMemo for Hermes Agent</h1>
 
-This plugin connects Hermes Agent to your XMemo account, giving the agent durable memory that survives sessions and long-running workflows, with per-profile isolation.
+  <p><strong>Native, user-owned long-term memory for Hermes Agent.</strong></p>
+  <p>
+    Recall across sessions, preserve working state, and keep Hermes connected to
+    the same private memory layer as your other AI agents.
+  </p>
 
-## Agent-readable summary
+  <p>
+    <a href="https://github.com/yonro/hermes-xmemo-plugin/actions/workflows/pypi-publish.yml"><img alt="Release" src="https://img.shields.io/github/actions/workflow/status/yonro/hermes-xmemo-plugin/pypi-publish.yml?event=push&amp;style=flat-square&amp;logo=githubactions&amp;logoColor=white&amp;label=release" /></a>
+    <a href="https://pypi.org/project/hermes-xmemo/"><img alt="PyPI" src="https://img.shields.io/pypi/v/hermes-xmemo?style=flat-square&amp;logo=pypi&amp;logoColor=white&amp;label=PyPI" /></a>
+    <a href="https://pypi.org/project/hermes-xmemo/"><img alt="Python" src="https://img.shields.io/pypi/pyversions/hermes-xmemo?style=flat-square&amp;logo=python&amp;logoColor=white" /></a>
+    <a href="LICENSE"><img alt="License" src="https://img.shields.io/pypi/l/hermes-xmemo?style=flat-square&amp;label=license" /></a>
+    <a href="https://github.com/yonro/hermes-xmemo-plugin/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/yonro/hermes-xmemo-plugin?style=flat-square&amp;logo=github" /></a>
+  </p>
 
-Use this section when a setup agent, package index, marketplace crawler, or
-Hermes-aware assistant needs to classify the integration quickly.
+  <p>
+    <img alt="Hermes native provider" src="https://img.shields.io/badge/Hermes-native%20provider-5B5BD6?style=flat-square" />
+    <img alt="XMemo Cloud" src="https://img.shields.io/badge/XMemo-Cloud-10B9B0?style=flat-square" />
+    <img alt="Privacy first" src="https://img.shields.io/badge/privacy-first-334155?style=flat-square" />
+    <img alt="Tools" src="https://img.shields.io/badge/tools-4%20default%20%2B%204%20workflow-EC4899?style=flat-square" />
+  </p>
 
-| Field | Value |
-|------|-------|
-| Package | `hermes-xmemo` |
-| Hermes plugin name | `xmemo` |
-| Runtime role | Native Hermes memory provider |
-| Recommended mode | `hermes_plugin_preferred` |
-| XMemo service | `https://xmemo.dev` |
-| XMemo MCP fallback | `https://xmemo.dev/mcp` |
-| Agent discovery | `https://xmemo.dev/.well-known/agent-discovery.json` |
-| Hermes config endpoint | `https://xmemo.dev/v1/mcp/config/hermes` |
-| Repository | `https://github.com/yonro/hermes-xmemo-plugin` |
-| ChatGPT bridge | ChatGPT can connect to XMemo through the hosted MCP/OAuth path; user-approved memories saved there can be recalled by Hermes through this plugin. |
+  <p>
+    <a href="#quick-start">Quick start</a> ·
+    <a href="#architecture">Architecture</a> ·
+    <a href="#tools">Tools</a> ·
+    <a href="#configuration">Configuration</a> ·
+    <a href="#reliability">Reliability</a> ·
+    <a href="#security">Security</a>
+  </p>
+</div>
 
-If the active runtime is Hermes Agent, prefer this native plugin over raw MCP
-configuration. The plugin participates in Hermes' memory lifecycle: pre-turn
-recall, native memory mirroring, working state, optional workflow tools, and
-session-end snapshots. Use the hosted MCP endpoint only as a portable fallback
-or for non-Hermes MCP clients.
+---
 
-## Shared memory with ChatGPT
+`hermes-xmemo` is the native XMemo memory provider for
+[Hermes Agent](https://hermes-agent.nousresearch.com/). It joins Hermes'
+memory lifecycle directly: pre-turn recall, explicit memory tools, built-in
+memory mirroring, per-session working context, and session-end snapshots.
 
-XMemo gives Hermes a way to work with the same user-owned cloud memory that can
-also be connected from ChatGPT. When a user saves useful ChatGPT brainstorms,
-project decisions, preferences, research notes, or handoff context into XMemo,
-Hermes can later recall that context through this native memory provider.
+> [!NOTE]
+> This provider reads memories that you saved or authorized in XMemo. It does
+> not read the private built-in memory of ChatGPT, Claude, or another client.
 
-This is especially useful for long-running work: ChatGPT can help shape the
-idea, XMemo stores the durable context under the user's account, and Hermes can
-continue with the same memory layer during agent runs. This does not mean the
-plugin reads ChatGPT's built-in native memory directly. It reads XMemo memories
-that the user explicitly saved or authorized through the XMemo connection.
-Marketplace or official-connection claims should be made only when supported by
-public listing or review evidence.
+## At a glance
 
-## What it does
+| | |
+|---|---|
+| Package | [`hermes-xmemo`](https://pypi.org/project/hermes-xmemo/) |
+| Hermes provider | `xmemo` |
+| Runtime role | Native memory provider |
+| Configuration | `$HERMES_HOME/xmemo.json` |
+| Cloud service | [`https://xmemo.dev`](https://xmemo.dev) |
+| Python | 3.10+ |
+| License | MIT |
 
-- **Cross-agent recall** — Hermes prefetches relevant XMemo context from all visible memories in your XMemo account, including memories written by other connected agents.
-- **Semantic search** — ask the agent to search saved facts with natural language (`xmemo_search`); results include provenance such as `self` or `other_agent` when XMemo returns it.
-- **Durable fact storage** — store explicit facts, preferences, and decisions (`xmemo_remember`).
-- **Working state with TTL** — save active task, next action, or blocker so future sessions can resume (`xmemo_update_state`).
-- **Built-in memory mirroring** — when Hermes' native `memory` tool writes, the same fact is mirrored to XMemo.
-- **Session snapshots** — captures a restart snapshot at session end for later restoration by compatible XMemo workflows.
-- **Reminders & timeline** — optional workflow tools for TODOs and timeline events (opt-in via config).
-- **Hermes write scoping** — new Hermes-authored memories are written to the configured Hermes scope so provenance stays clear.
-- **Resilient by default** — circuit breaker pauses API calls after consecutive failures; background prefetch/sync never block the chat.
+### Why a native provider?
 
-## Install
+- **First-class lifecycle** — recall starts before a turn and snapshots happen
+  when a session ends.
+- **Cross-agent continuity** — Hermes can recall user-approved XMemo memories
+  written by other connected agents.
+- **Bounded context** — recall is ranked and limited before it reaches the
+  prompt.
+- **Write isolation** — Hermes-authored entries use a dedicated bucket and
+  scope while reads can span all memories visible to the account.
+- **Graceful degradation** — timeouts, a circuit breaker, local read cache, and
+  a write outbox keep memory failures from blocking the conversation.
 
-Hermes looks for memory provider plugins in `$HERMES_HOME/plugins/<name>/`. The default `HERMES_HOME` is `~/.hermes`.
+## Quick start
 
-### XMemo CLI setup (recommended)
+### 1. Install with XMemo CLI (recommended)
 
 ```bash
 npm install -g @xmemo/client
@@ -67,18 +82,17 @@ xmemo login
 xmemo setup hermes
 ```
 
-`xmemo setup hermes` installs or updates `hermes-xmemo`, runs
-`hermes-xmemo install`, and syncs the shared XMemo credential to Hermes.
+This installs or updates the Python package, deploys the native provider into
+Hermes, and reuses your user-scoped XMemo credential. Hosted MCP is not added by
+default.
 
-To install to a non-default Hermes home:
+For a custom Hermes home:
 
 ```bash
-xmemo setup hermes --hermes-home /path/to/your/hermes-home
+xmemo setup hermes --hermes-home /path/to/.hermes
 ```
 
-### pip install
-
-Use this lower-level path when you do not want `@xmemo/client` to manage setup:
+### 2. Install directly from PyPI
 
 ```bash
 pip install hermes-xmemo
@@ -86,102 +100,126 @@ hermes-xmemo install
 hermes memory setup xmemo
 ```
 
-### One-liner (no pip)
+### 3. Install without cloning
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/install-remote.sh | bash
 hermes memory setup xmemo
 ```
 
-### Using install.sh (if you already cloned)
+The native Hermes setup wizard remains supported. If `xmemo login` has already
+stored a shared credential, the wizard can reuse it; otherwise it asks for an
+XMemo token.
 
-```bash
-cd hermes-xmemo-plugin
-bash install.sh
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/assets/hermes-setup-flow.svg" alt="XMemo for Hermes setup flow" width="920" />
+</p>
 
-### Manual install
+## Architecture
 
-```bash
-# Remove any previous install first to avoid nested directories.
-rm -rf "${HERMES_HOME:-$HOME/.hermes}/plugins/xmemo"
-mkdir -p "${HERMES_HOME:-$HOME/.hermes}/plugins"
-cp -r src/hermes_xmemo/xmemo "${HERMES_HOME:-$HOME/.hermes}/plugins/"
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/assets/hermes-architecture.svg" alt="XMemo for Hermes architecture" width="980" />
+</p>
 
-### Configure
+The provider runs inside Hermes and communicates with XMemo over bounded HTTPS
+requests. Its local SQLite reliability layer belongs to the Hermes profile; it
+is not a second source of truth.
 
-Recommended shared-credential setup:
+### Lifecycle
 
-```bash
-xmemo login
-xmemo setup hermes
-```
+1. **Before a turn** — Hermes starts a background prefetch and injects a
+   bounded XMemo context pack when it is ready.
+2. **During a turn** — the agent can search, remember, or update working state
+   with explicit tools. Writes through Hermes' built-in `memory` tool are
+   mirrored to XMemo while this provider is active.
+3. **After a turn** — high-signal timeline capture is available as an opt-in.
+4. **At session end** — the provider captures a restart snapshot and schedules
+   a final outbox sync.
 
-This uses the same user-scoped credential as `@xmemo/client`, syncs it to
-Hermes' existing `$HERMES_HOME/.env` `XMEMO_KEY` location for compatibility,
-and installs/updates the native Hermes plugin. Hosted MCP is not installed by
-default; use `xmemo setup hermes --with-mcp` only when you want that fallback.
+Prefetch state is isolated by profile and session, preventing one concurrent
+Hermes session from receiving another session's recall context.
 
-The original Hermes-native setup remains supported:
+### Native provider or hosted MCP?
 
-```bash
-hermes memory setup xmemo
-```
+| | Native provider | Hosted MCP |
+|---|---|---|
+| Best for | Hermes Agent | MCP-only clients |
+| Hermes lifecycle hooks | Yes | No |
+| Pre-turn context injection | Yes | Client-dependent |
+| Built-in memory mirroring | Yes | No |
+| Local cache and outbox | Yes | Client-dependent |
+| Endpoint | Installed plugin | `https://xmemo.dev/mcp` |
 
-If `xmemo login` or `xmemo token add --from-stdin` has already stored a shared
-credential, the setup wizard can reuse it. If not, it asks for your XMemo token
-and writes `XMEMO_KEY` to `$HERMES_HOME/.env` as before.
+Use the native provider for Hermes. Add `xmemo setup hermes --with-mcp` only
+when you deliberately want the portable MCP fallback as well.
 
-Or manually:
+## Tools
 
-```bash
-hermes config set memory.provider xmemo
-echo "XMEMO_KEY=your-token" >> "${HERMES_HOME:-$HOME/.hermes}/.env"
-```
+### Default
 
-## Requirements
+| Tool | Purpose |
+|---|---|
+| `xmemo_recall_context` | Build a bounded, ranked context pack |
+| `xmemo_search` | Search durable memories semantically |
+| `xmemo_remember` | Save a durable fact, preference, or decision |
+| `xmemo_update_state` | Save active task, next action, or blocker with TTL |
 
-- Hermes Agent (the plugin is loaded by Hermes at runtime)
-- `httpx` (already a dependency of Hermes)
-- XMemo service token from [xmemo.dev](https://xmemo.dev)
+### Optional workflow tools
 
-## How it works
+Set `"enable_workflow_tools": true` in `xmemo.json`:
 
-1. **Before the turn** — Hermes calls `prefetch()` to retrieve relevant XMemo context across visible memories in your XMemo account and injects it into the conversation.
-2. **During the turn** — the agent can call explicit XMemo tools (`xmemo_search`, `xmemo_remember`, etc.).
-3. **After the turn** — high-signal turns can be recorded to the XMemo timeline if `capture_timeline` is enabled.
-4. **Session end** — a restart snapshot is captured for later restoration by compatible XMemo workflows.
+| Tool | Purpose |
+|---|---|
+| `xmemo_record_event` | Append a timeline event or milestone |
+| `xmemo_create_reminder` | Create a TODO or action item |
+| `xmemo_list_reminders` | List open or completed reminders |
+| `xmemo_complete_reminder` | Mark a reminder complete |
 
-Automatic prefetch, turn sync, and session snapshots run in the background. Explicit tool calls and memory mirroring use bounded timeouts, with a circuit breaker protecting Hermes from repeated failures.
+### Optional destructive tool
 
-## Configure
+Set `"enable_destructive_tools": true` to expose `xmemo_forget`. Deletion
+requires an exact memory ID and stays disabled by default.
 
-Most users do not need this section. Advanced settings are available in
+## Configuration
+
+Most installations need no manual configuration. Non-secret settings live in
 `$HERMES_HOME/xmemo.json`:
 
-| Key | Default | Description |
-|-----|---------|-------------|
+| Key | Default | Purpose |
+|---|---|---|
 | `agent_id` | `hermes` | Agent family identifier |
-| `agent_instance_id` | auto-generated | Stable, opaque install identifier |
-| `bucket` | `work` | Storage namespace for new Hermes-authored writes |
+| `agent_instance_id` | generated | Stable, opaque installation identifier |
+| `bucket` | `work` | Namespace for new Hermes-authored writes |
 | `scope` | `hermes/default` | Scope for new Hermes-authored writes |
-| `read_bucket` | `%` | Bucket filter for recall/search (`%` = all visible buckets) |
-| `read_scope` | unset | Scope filter for recall/search (unset = all visible scopes) |
+| `read_bucket` | `%` | Recall/search bucket filter (`%` means all visible) |
+| `read_scope` | unset | Recall/search scope filter (unset means all visible) |
 | `timeout_seconds` | `5.0` | REST request timeout |
-| `prefetch_max_items` | `5` | Max context items per recall |
-| `prefetch_max_tokens` | `900` | Max context tokens per recall |
-| `enable_workflow_tools` | `false` | Expose reminder/event tools |
+| `prefetch_max_items` | `5` | Maximum recalled items |
+| `prefetch_max_tokens` | `900` | Maximum recalled context tokens |
+| `enable_workflow_tools` | `false` | Expose reminder and event tools |
 | `enable_destructive_tools` | `false` | Expose `xmemo_forget` |
-| `capture_timeline` | `false` | Record high-signal turns to timeline |
+| `capture_timeline` | `false` | Record high-signal turns |
+| `enable_non_idempotent_replay` | `false` | Auto-replay non-idempotent queued writes |
 
-### Environment variables
+Example:
 
-You can override most settings via environment variables (useful for CI or containerized setups):
+```json
+{
+  "bucket": "work",
+  "scope": "hermes/default",
+  "read_bucket": "%",
+  "prefetch_max_items": 5,
+  "prefetch_max_tokens": 900,
+  "enable_workflow_tools": false
+}
+```
+
+### Environment overrides
 
 | Variable | Overrides |
-|----------|-----------|
-| `XMEMO_KEY` | API key (highest priority; `MEMORY_OS_API_KEY` and `MEMORY_OS_MCP_TOKEN` are also accepted) |
+|---|---|
+| `XMEMO_KEY` | API key |
+| `XMEMO_URL` | Service base URL |
 | `XMEMO_AGENT_ID` | `agent_id` |
 | `XMEMO_AGENT_INSTANCE_ID` | `agent_instance_id` |
 | `XMEMO_BUCKET` | `bucket` |
@@ -192,104 +230,112 @@ You can override most settings via environment variables (useful for CI or conta
 | `XMEMO_PREFETCH_MAX_ITEMS` | `prefetch_max_items` |
 | `XMEMO_PREFETCH_MAX_TOKENS` | `prefetch_max_tokens` |
 
-## Tools
+Legacy `MEMORY_OS_API_KEY`, `MEMORY_OS_MCP_TOKEN`, and `MEMORY_OS_URL`
+variables remain accepted.
 
-### Default tools
+### Credential resolution
 
-These tools are always available:
+Credentials are resolved in this order:
 
-| Tool | Description |
-|------|-------------|
-| `xmemo_recall_context` | Build a bounded, ranked context pack |
-| `xmemo_search` | Semantic search over XMemo memories |
-| `xmemo_remember` | Save a durable fact |
-| `xmemo_update_state` | Save active task / next action / blocker with TTL |
+1. `XMEMO_KEY`, then the supported legacy environment variables.
+2. The user-scoped credential saved by `xmemo login`.
 
-### Optional workflow tools
+Secrets are never read from or written to `xmemo.json`. The setup flow can sync
+the active token to `$HERMES_HOME/.env` for Hermes compatibility.
 
-Set `enable_workflow_tools: true` in `xmemo.json` to expose:
+## Reliability
 
-| Tool | Description |
-|------|-------------|
-| `xmemo_record_event` | Append a timeline event or milestone |
-| `xmemo_create_reminder` | Create a TODO / action item |
-| `xmemo_list_reminders` | List open or completed reminders |
-| `xmemo_complete_reminder` | Mark a reminder as completed |
+The plugin maintains `$HERMES_HOME/xmemo_cache.db` so temporary service or
+network failures degrade safely.
 
-### Optional destructive tool
+| Layer | Behavior |
+|---|---|
+| Fresh read cache | Reuses matching recall/search results for 5 minutes |
+| Stale fallback | Returns marked cache results during transient failures, up to 24 hours old |
+| Write outbox | Queues transiently failed writes with stable idempotency keys |
+| Replay | Retries idempotent writes up to 5 times with exponential backoff capped at 1 hour |
+| Non-idempotent writes | Held by default to avoid duplicate reminders or events |
+| Dead letters | Permanent failures and exhausted retries are retained for diagnosis |
+| Retention | Sent entries: 24 hours; failed entries: 7 days; failed queue capped at 100 |
 
-Set `enable_destructive_tools: true` to expose:
+Fallback responses are explicitly marked with `stale: true` and
+`source: "cache"` so the agent does not confuse an offline cache result with
+fresh cloud state.
 
-| Tool | Description |
-|------|-------------|
-| `xmemo_forget` | Delete a memory by exact id |
+> [!WARNING]
+> `xmemo_cache.db` contains cached memory responses and queued write payloads as
+> plain-text JSON. It never stores API credentials, but `$HERMES_HOME` should
+> still be readable only by the owning user.
 
-## Privacy & security
+## Security
 
-- API keys live in `$HERMES_HOME/.env` or the user-scoped `@xmemo/client`
-  `credentials.json`, never in `xmemo.json`.
-- Credential lookup is backwards compatible: explicit Hermes/process
-  environment variables win, then the shared `@xmemo/client` credential file is
-  used as a fallback.
-- `xmemo_forget` requires an exact memory id and is disabled by default.
-- Automatic timeline writes are disabled by default. When enabled, only high-signal turns (decisions, preferences, blockers, etc.) are recorded.
-- Built-in `memory` tool writes are mirrored to XMemo only when the provider is active.
-- Prefetch cache is isolated per session, so concurrent gateway sessions cannot cross-contaminate recall context.
+| Control | Default |
+|---|---|
+| Credentials outside project configuration | Enabled |
+| Destructive memory tool | Disabled |
+| Automatic timeline capture | Disabled |
+| Exact ID required for deletion | Enabled |
+| Per-session prefetch isolation | Enabled |
+| Bounded network timeout | 5 seconds |
+| Circuit breaker | Enabled |
 
-## Reliability, Local Cache & Outbox
+Avoid committing `$HERMES_HOME/.env`, `xmemo.json`, or runtime cache files.
+Treat the XMemo token like any other service credential.
 
-To improve availability and reduce data-loss risk during temporary XMemo API outages, the plugin implements a local reliability layer using a SQLite database (`xmemo_cache.db` located in `$HERMES_HOME`).
+## Operations
 
-### 1. Read Cache Fallback
-- **Bilingual Search Hints**: Common Chinese and English recall concepts are expanded into one compact mixed-language search query, improving semantic retrieval without issuing duplicate API calls.
-- **Fresh Cache Priority**: Repeated `xmemo_search` queries use a matching local result during its **5-minute fresh TTL**, reducing latency and unnecessary API calls.
-- **Lightweight Caching**: Successful query results (`xmemo_search`, `xmemo_recall_context`, and background prefetches) are cached locally.
-- **Stale Fallback**: If the XMemo cloud is unreachable (transient connection failures, timeouts, or HTTP 5xx errors), the plugin automatically falls back to the local cache, provided the cached data is less than **24 hours old** (`max_stale_until`). Fallback results are returned with `stale: true` and `source: "cache"` markers to inform the agent of their status.
-
-### 2. Write Outbox & Idempotency
-- **Failover Queueing**: When a write operation (e.g., saving a fact, updating state, recording an event) fails due to a transient network error, it is automatically enqueued into a local outbox.
-- **Outbox Status Routing**:
-  - **Idempotent Writes** (`xmemo_remember`, `xmemo_update_state`): Enqueued as `'pending'` and automatically replayed by a background sync daemon using exponential backoff (up to 5 retries, capped at a maximum delay of 1 hour).
-  - **Non-Idempotent Writes** (`xmemo_record_event`, `xmemo_create_reminder`, etc.): By default, these enter a `'held'` status and are **not** replayed automatically (unless `enable_non_idempotent_replay: true` is set in `xmemo.json`), protecting the server from duplicate entries.
-- **Idempotency Standards**: Every write operation generates a stable, unique idempotency key (UUID) at initiation. This key is preserved and sent in the `Idempotency-Key` and `X-Idempotency-Key` headers, as well as the JSON body, on all retries and replays, allowing the XMemo server to deduplicate requests.
-- **Dead-Lettering**: If an outbox write fails with a permanent non-transient error (e.g., HTTP 4xx validation or auth errors) or exhausts all 5 retry attempts, it is immediately moved to `'failed'` (dead-lettered) status with the error message recorded in the database.
-
-### 3. Privacy, Retention & Diagnostics
-- **Payload Security**:
-  > [!WARNING]
-  > The local `xmemo_cache.db` database file stores copies of cached recall responses and queued outbox payloads in plain-text JSON. No credentials or API keys are ever cached or written to this database. To protect this sensitive data, secure the `$HERMES_HOME` directory and restrict file access to the owner process.
-- **Database Retention & Cleanup**:
-  - Successfully synchronized writes (`'sent'`) are automatically pruned from the outbox after **24 hours**.
-  - Failed/dead-lettered outbox writes (`'failed'`) are automatically deleted after **7 days**, and the dead-letter queue is capped at a maximum of **100 records** to prevent database bloating.
-- **Diagnostic Controls**:
-  If you need to clear the local cache or outbox (for troubleshooting or privacy reasons), the plugin provides programmatic controls via the `XMemoLocalCache` class:
-  - `local_cache.clear_cache()`: Safe to call at any time. Instantly clears all cached read queries.
-  - `local_cache.clear_outbox()`: Instantly purges all queued write operations.
-    > [!CAUTION]
-    > Wiping the outbox will permanently delete any pending or held write operations that have not yet synchronized to the XMemo cloud.
-
-## Uninstall or disable
-
-To disable XMemo without removing files:
+Disable XMemo without removing files:
 
 ```bash
 hermes config set memory.provider ""
 ```
 
-To remove the plugin entirely:
+Re-enable it:
+
+```bash
+hermes config set memory.provider xmemo
+```
+
+Remove the installed provider:
 
 ```bash
 rm -rf "${HERMES_HOME:-$HOME/.hermes}/plugins/xmemo"
 ```
 
-## Learn more
+## Development
 
-- [xmemo.dev](https://xmemo.dev) — XMemo home
-- [XMemo agent discovery](https://xmemo.dev/.well-known/agent-discovery.json)
-- [Hermes XMemo config](https://xmemo.dev/v1/mcp/config/hermes)
-- [XMemo hosted MCP fallback](https://xmemo.dev/mcp)
-- [Hermes Agent docs: Memory Providers](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers)
+```bash
+git clone https://github.com/yonro/hermes-xmemo-plugin.git
+cd hermes-xmemo-plugin
+python -m pip install -e .
+python -m pytest -q
+python -m build
+```
+
+The implementation shipped to Hermes lives in
+`src/hermes_xmemo/xmemo/`. Keep its bundled README aligned with this repository
+README whenever installation or configuration behavior changes.
+
+## Agent-readable metadata
+
+| Field | Value |
+|---|---|
+| Package | `hermes-xmemo` |
+| Provider name | `xmemo` |
+| Recommended mode | `hermes_plugin_preferred` |
+| Agent discovery | `https://xmemo.dev/.well-known/agent-discovery.json` |
+| Hermes configuration | `https://xmemo.dev/v1/mcp/config/hermes` |
+| MCP fallback | `https://xmemo.dev/mcp` |
+| Repository | `https://github.com/yonro/hermes-xmemo-plugin` |
+
+## Links
+
+- [XMemo](https://xmemo.dev)
+- [PyPI package](https://pypi.org/project/hermes-xmemo/)
+- [Hermes memory-provider documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers)
+- [Agent discovery](https://xmemo.dev/.well-known/agent-discovery.json)
+- [Issue tracker](https://github.com/yonro/hermes-xmemo-plugin/issues)
 
 ## License
 
-MIT
+[MIT](LICENSE) © XMemo contributors.

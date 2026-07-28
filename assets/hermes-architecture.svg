@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" role="img" aria-labelledby="title desc">
+  <title id="title">XMemo native memory architecture for Hermes Agent</title>
+  <desc id="desc">Hermes Agent invokes the native XMemo provider, which connects to XMemo Cloud and maintains a provider-owned local SQLite reliability layer.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 10 5 0 10Z" class="arrow-head"/>
+    </marker>
+    <style>
+      .canvas { fill: #f8fafc; stroke: #e2e8f0; }
+      .card { fill: #ffffff; stroke: #cbd5e1; }
+      .provider { fill: #f5f3ff; stroke: #8b5cf6; }
+      .cloud { fill: #fdf4ff; stroke: #d946ef; }
+      .local { fill: #ecfeff; stroke: #06b6d4; }
+      .title { fill: #0f172a; font: 700 22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { fill: #0f172a; font: 650 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .body { fill: #475569; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .caption { fill: #64748b; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .line { fill: none; stroke: #94a3b8; stroke-width: 2; marker-end: url(#arrow); }
+      .arrow-head { fill: #94a3b8; }
+      .accent-blue { fill: #06b6d4; }
+      .accent-violet { fill: #8b5cf6; }
+      .accent-pink { fill: #ec4899; }
+      @media (prefers-color-scheme: dark) {
+        .canvas { fill: #0d1117; stroke: #30363d; }
+        .card { fill: #161b22; stroke: #3d444d; }
+        .provider { fill: #211a36; stroke: #a78bfa; }
+        .cloud { fill: #2a1830; stroke: #e879f9; }
+        .local { fill: #102a2e; stroke: #22d3ee; }
+        .title, .label { fill: #f0f6fc; }
+        .body { fill: #b1bac4; }
+        .caption { fill: #8b949e; }
+        .line { stroke: #6e7681; }
+        .arrow-head { fill: #6e7681; }
+      }
+    </style>
+  </defs>
+
+  <rect class="canvas" x="1" y="1" width="1198" height="478" rx="22"/>
+  <text class="title" x="48" y="54">One provider across the Hermes memory lifecycle</text>
+  <text class="caption" x="48" y="80">Recall before the turn, operate during the turn, mirror native writes, and preserve restart state at session end.</text>
+
+  <rect class="card" x="48" y="126" width="260" height="248" rx="16"/>
+  <rect class="accent-blue" x="48" y="126" width="7" height="248" rx="3"/>
+  <text class="label" x="80" y="168">Hermes Agent</text>
+  <text class="body" x="80" y="208">Pre-turn prefetch</text>
+  <text class="body" x="80" y="236">Explicit memory tools</text>
+  <text class="body" x="80" y="264">Native memory writes</text>
+  <text class="body" x="80" y="292">Session-end lifecycle</text>
+  <text class="caption" x="80" y="344">Profile-isolated sessions</text>
+
+  <rect class="provider" x="368" y="126" width="276" height="248" rx="16"/>
+  <rect class="accent-violet" x="368" y="126" width="7" height="248" rx="3"/>
+  <text class="label" x="400" y="168">XMemo provider</text>
+  <text class="body" x="400" y="208">Bounded context packs</text>
+  <text class="body" x="400" y="236">Search and durable writes</text>
+  <text class="body" x="400" y="264">Working state and TODOs</text>
+  <text class="body" x="400" y="292">Restart snapshots</text>
+  <text class="caption" x="400" y="344">Circuit breaker + timeouts</text>
+
+  <rect class="cloud" x="770" y="108" width="382" height="142" rx="16"/>
+  <rect class="accent-pink" x="770" y="108" width="7" height="142" rx="3"/>
+  <text class="label" x="802" y="150">XMemo Cloud</text>
+  <text class="body" x="802" y="184">Durable memory · semantic recall · cross-agent context</text>
+  <text class="caption" x="802" y="218">Hosted or private endpoint</text>
+
+  <rect class="local" x="770" y="278" width="382" height="142" rx="16"/>
+  <rect class="accent-blue" x="770" y="278" width="7" height="142" rx="3"/>
+  <text class="label" x="802" y="320">Provider-owned local SQLite</text>
+  <text class="body" x="802" y="354">Recall cache · write outbox · retry state</text>
+  <text class="caption" x="802" y="388">Plain-text memory payloads; no credentials</text>
+
+  <path class="line" d="M308 250 H356"/>
+  <path class="line" d="M644 196 H758"/>
+  <path class="line" d="M644 326 H758"/>
+  <path class="line" d="M770 358 H656"/>
+
+  <text class="caption" x="48" y="446">Hermes writes to its configured scope while recall searches all visible XMemo memory by default.</text>
+</svg>
