@@ -19,6 +19,9 @@ def test_readme_brand_assets_exist_and_are_referenced() -> None:
         assert (ROOT / asset).is_file()
         assert asset in readme
 
+    assert "https://cdn.jsdelivr.net/gh/yonro/hermes-xmemo-plugin@main/assets/" in readme
+    assert "raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/assets/" not in readme
+
 
 def test_release_badge_tracks_the_workflow_push_event() -> None:
     readme = ROOT_README.read_text(encoding="utf-8")

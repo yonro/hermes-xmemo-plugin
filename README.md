@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://xmemo.dev">
-    <img src="https://raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/assets/icon.png" alt="XMemo" width="112" />
+    <img src="https://cdn.jsdelivr.net/gh/yonro/hermes-xmemo-plugin@main/assets/icon.png" alt="XMemo" width="112" />
   </a>
 
   <h1>XMemo for Hermes Agent</h1>
@@ -112,13 +112,13 @@ stored a shared credential, the wizard can reuse it; otherwise it asks for an
 XMemo token.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/assets/hermes-setup-flow.svg" alt="XMemo for Hermes setup flow" width="920" />
+  <img src="https://cdn.jsdelivr.net/gh/yonro/hermes-xmemo-plugin@main/assets/hermes-setup-flow.svg" alt="XMemo for Hermes setup flow" width="920" />
 </p>
 
 ## Architecture
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/yonro/hermes-xmemo-plugin/main/assets/hermes-architecture.svg" alt="XMemo for Hermes architecture" width="980" />
+  <img src="https://cdn.jsdelivr.net/gh/yonro/hermes-xmemo-plugin@main/assets/hermes-architecture.svg" alt="XMemo for Hermes architecture" width="980" />
 </p>
 
 The provider runs inside Hermes and communicates with XMemo over bounded HTTPS
