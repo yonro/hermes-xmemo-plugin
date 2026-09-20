@@ -32,7 +32,7 @@ DEFAULT_PREFETCH_MAX_TOKENS = 900
 
 
 def _config_path() -> Path:
-    return get_hermes_home() / "xmemo.json"
+    return Path(get_hermes_home()) / "xmemo.json"
 
 
 def _default_agent_instance_id() -> str:
