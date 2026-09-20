@@ -240,29 +240,62 @@ class XMemoClient:
         bucket: str = "%",
         scope: Optional[str] = None,
         memory_type: str = "%",
-        limit: int = 5,
+        path: Optional[str] = None,
+        limit: int = 10,
         explain: bool = False,
         prefer_working: bool = False,
     ) -> List[Dict[str, Any]]:
         """Semantic search over XMemo memories."""
+        params: Dict[str, Any] = {
+            "query": query,
+            "bucket": bucket,
+            "scope": scope,
+            "memory_type": memory_type,
+            "limit": limit,
+            "explain": explain,
+            "prefer_working": prefer_working,
+        }
+        if path and path != "%":
+            params["path"] = path
         result = self._request(
             "GET",
             "/v1/memories/search",
-            params=_drop_none({
-                "query": query,
-                "bucket": bucket,
-                "scope": scope,
-                "memory_type": memory_type,
-                "limit": limit,
-                "explain": explain,
-                "prefer_working": prefer_working,
-            }),
+            params=_drop_none(params),
         )
         if isinstance(result, dict):
             return result.get("results", []) or []
         if isinstance(result, list):
             return result
         return []
+
+    def get_memory(self, memory_id: str) -> Dict[str, Any]:
+        """Fetch the full content and details of a single memory by ID without truncation."""
+        clean_id = str(memory_id or "").strip()
+        if not clean_id:
+            raise ValueError("memory_id cannot be empty")
+        return self._request("GET", f"/v1/memories/{clean_id}/explain")
+
+    def list_memories(
+        self,
+        *,
+        path: str = "%",
+        limit: int = 20,
+        bucket: str = "%",
+        scope: Optional[str] = None,
+        memory_type: str = "%",
+    ) -> List[Dict[str, Any]]:
+        """List memories under an optional logical path prefix."""
+        search_path = path.strip() if path and path.strip() else "%"
+        if search_path != "%" and not search_path.endswith("*") and not search_path.endswith("%"):
+            search_path = f"{search_path}%"
+        return self.search(
+            query="*",
+            path=search_path,
+            limit=limit,
+            bucket=bucket,
+            scope=scope,
+            memory_type=memory_type,
+        )
 
     def remember(
         self,

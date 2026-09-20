@@ -68,6 +68,8 @@ Prefetch state is isolated per Hermes profile and session.
 |---|---|
 | `xmemo_recall_context` | Build a bounded, ranked context pack |
 | `xmemo_search` | Search durable memories semantically |
+| `xmemo_get` | Retrieve full untruncated content of a single memory by ID |
+| `xmemo_list` | List memories under an optional path prefix or category |
 | `xmemo_remember` | Save a durable fact, preference, or decision |
 | `xmemo_update_state` | Save active task, next action, or blocker with TTL |
 

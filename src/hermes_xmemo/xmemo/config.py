@@ -162,9 +162,21 @@ def load_config(*, create_instance: bool = False) -> Dict[str, Any]:
         except ValueError:
             pass
 
+    enable_tools = file_cfg.get("enable_tools", True)
+    if "XMEMO_ENABLE_TOOLS" in os.environ:
+        enable_tools = os.environ["XMEMO_ENABLE_TOOLS"].strip().lower() not in ("0", "false", "no", "off")
+
     enable_workflow_tools = file_cfg.get("enable_workflow_tools", False)
+    if "XMEMO_ENABLE_WORKFLOW_TOOLS" in os.environ:
+        enable_workflow_tools = os.environ["XMEMO_ENABLE_WORKFLOW_TOOLS"].strip().lower() in ("1", "true", "yes", "on")
+
     enable_destructive_tools = file_cfg.get("enable_destructive_tools", False)
+    if "XMEMO_ENABLE_DESTRUCTIVE_TOOLS" in os.environ:
+        enable_destructive_tools = os.environ["XMEMO_ENABLE_DESTRUCTIVE_TOOLS"].strip().lower() in ("1", "true", "yes", "on")
+
     capture_timeline = file_cfg.get("capture_timeline", False)
+    if "XMEMO_CAPTURE_TIMELINE" in os.environ:
+        capture_timeline = os.environ["XMEMO_CAPTURE_TIMELINE"].strip().lower() in ("1", "true", "yes", "on")
 
     config = {
         "api_key": api_key,
@@ -179,6 +191,7 @@ def load_config(*, create_instance: bool = False) -> Dict[str, Any]:
         "timeout_seconds": timeout,
         "prefetch_max_items": prefetch_max_items,
         "prefetch_max_tokens": prefetch_max_tokens,
+        "enable_tools": enable_tools,
         "enable_workflow_tools": enable_workflow_tools,
         "enable_destructive_tools": enable_destructive_tools,
         "capture_timeline": capture_timeline,

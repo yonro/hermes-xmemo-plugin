@@ -102,7 +102,7 @@ SEARCH_SCHEMA = {
             },
             "limit": {
                 "type": "integer",
-                "description": "Max results (default 5, max 20).",
+                "description": "Max results (default 10, max 50).",
             },
             "memory_type": {
                 "type": "string",
@@ -110,6 +110,48 @@ SEARCH_SCHEMA = {
             },
         },
         "required": ["query"],
+    },
+}
+
+GET_SCHEMA = {
+    "name": "xmemo_get",
+    "description": (
+        "Retrieve the full, complete content of a single memory from XMemo by its memory_id. "
+        "Use this when search or prefetch returned an item whose content was truncated, "
+        "or when you need the complete text and metadata of a specific memory."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "memory_id": {
+                "type": "string",
+                "description": "The exact ID of the memory to retrieve.",
+            },
+        },
+        "required": ["memory_id"],
+    },
+}
+
+LIST_SCHEMA = {
+    "name": "xmemo_list",
+    "description": (
+        "List memories under an optional logical path or category in XMemo. "
+        "Returns a list of memory summaries. Use this to browse available knowledge "
+        "or view what is stored in a specific category (e.g. 'notes' or 'hermes/preferences')."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Optional path prefix or category to filter by (e.g. 'notes' or 'preferences').",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max results to return (default 20).",
+            },
+        },
+        "required": [],
     },
 }
 
@@ -336,8 +378,10 @@ FORGET_SCHEMA = {
 
 # Schemas exposed by default. Workflow/destructive tools are opt-in via config.
 _CORE_TOOL_SCHEMAS = [
-    RECALL_CONTEXT_SCHEMA,
     SEARCH_SCHEMA,
+    GET_SCHEMA,
+    LIST_SCHEMA,
+    RECALL_CONTEXT_SCHEMA,
     REMEMBER_SCHEMA,
     UPDATE_STATE_SCHEMA,
 ]
@@ -1173,9 +1217,17 @@ class XMemoMemoryProvider(MemoryProvider):
         return schemas
 
     def handle_tool_call(
-        self, tool_name: str, args: Dict[str, Any], **kwargs
+        self, tool_name: str, args: Any = None, **kwargs
     ) -> str:
         """Route a tool call to the correct XMemo API."""
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                args = {}
+        if not isinstance(args, dict):
+            args = kwargs or {}
+
         try:
             client = self._get_client()
         except Exception as exc:
@@ -1183,6 +1235,10 @@ class XMemoMemoryProvider(MemoryProvider):
 
         if tool_name == "xmemo_search":
             return self._handle_search(client, args)
+        if tool_name == "xmemo_get":
+            return self._handle_get(client, args)
+        if tool_name == "xmemo_list":
+            return self._handle_list(client, args)
         if tool_name == "xmemo_remember":
             return self._handle_remember(client, args)
         if tool_name == "xmemo_update_state":
@@ -1327,6 +1383,64 @@ class XMemoMemoryProvider(MemoryProvider):
                 "error": f"XMemo search failed and no cached copy is available: {exc}",
                 "note": "The memory store is temporarily unreachable and there is no local cache for this query. Do not assume the user has no memories.",
             })
+
+    def _handle_get(self, client: XMemoClient, args: Dict[str, Any]) -> str:
+        memory_id = args.get("memory_id", "").strip()
+        if not memory_id:
+            return tool_error("Missing required parameter: memory_id")
+
+        try:
+            result = client.get_memory(memory_id)
+            self._record_success()
+            if not result:
+                return tool_error(f"Memory '{memory_id}' not found in XMemo.")
+            data = result.get("memory", result) if isinstance(result, dict) else result
+            return json.dumps({
+                "id": data.get("id") or data.get("memory_id") or memory_id,
+                "content": data.get("content", ""),
+                "path": data.get("path", ""),
+                "created_at": data.get("created_at", ""),
+                "metadata": data.get("metadata", {}),
+                "memory_type": data.get("memory_type", "semantic"),
+            }, ensure_ascii=False)
+        except Exception as exc:
+            self._record_failure(str(exc))
+            return tool_error(f"XMemo get failed: {exc}")
+
+    def _handle_list(self, client: XMemoClient, args: Dict[str, Any]) -> str:
+        path = args.get("path", "").strip()
+        try:
+            limit = min(int(args.get("limit", 20)), 100)
+        except (ValueError, TypeError):
+            limit = 20
+
+        try:
+            results = client.list_memories(
+                path=path or "%",
+                limit=limit,
+                bucket=self._read_bucket(),
+                scope=self._read_scope(),
+            )
+            self._record_success()
+            if not results:
+                msg = f"No XMemo memories found under path '{path}'." if path else "No XMemo memories found."
+                return json.dumps({"result": msg, "items": [], "count": 0})
+            items = []
+            for r in results:
+                item_id = r.get("id") or r.get("memory_id")
+                content = r.get("content", "")
+                preview = (content[:150] + "...") if len(content) > 150 else content
+                items.append({
+                    "id": item_id,
+                    "path": r.get("path", ""),
+                    "preview": preview,
+                    "created_at": r.get("created_at", ""),
+                    "score": r.get("score"),
+                })
+            return json.dumps({"items": items, "count": len(items)}, ensure_ascii=False)
+        except Exception as exc:
+            self._record_failure(str(exc))
+            return tool_error(f"XMemo list failed: {exc}")
 
     def _handle_remember(self, client: XMemoClient, args: Dict[str, Any]) -> str:
         content = args.get("content", "").strip()
@@ -1812,5 +1926,29 @@ class XMemoMemoryProvider(MemoryProvider):
 
 
 def register(ctx) -> None:
-    """Register XMemo as a memory provider plugin."""
-    ctx.register_memory_provider(XMemoMemoryProvider())
+    """Register XMemo as a memory provider and tool plugin."""
+    provider = XMemoMemoryProvider()
+    ctx.register_memory_provider(provider)
+
+    cfg = load_config(create_instance=False)
+    if _as_bool(cfg.get("enable_tools", True)) and hasattr(ctx, "register_tool"):
+        def _make_handler(name: str):
+            return lambda args=None, **kwargs: provider.handle_tool_call(
+                name, (args if isinstance(args, dict) else kwargs) or kwargs or {}, **kwargs
+            )
+
+        ctx.register_tool(
+            name="xmemo_search",
+            schema=SEARCH_SCHEMA,
+            handler=_make_handler("xmemo_search"),
+        )
+        ctx.register_tool(
+            name="xmemo_get",
+            schema=GET_SCHEMA,
+            handler=_make_handler("xmemo_get"),
+        )
+        ctx.register_tool(
+            name="xmemo_list",
+            schema=LIST_SCHEMA,
+            handler=_make_handler("xmemo_list"),
+        )

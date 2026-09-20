@@ -5,3 +5,7 @@ pip_dependencies:
   - httpx
 hooks:
   - on_session_end
+provides_tools:
+  - xmemo_search
+  - xmemo_get
+  - xmemo_list
