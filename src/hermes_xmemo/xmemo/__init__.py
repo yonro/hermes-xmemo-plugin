@@ -1937,18 +1937,27 @@ def register(ctx) -> None:
                 name, (args if isinstance(args, dict) else kwargs) or kwargs or {}, **kwargs
             )
 
-        ctx.register_tool(
-            name="xmemo_search",
-            schema=SEARCH_SCHEMA,
-            handler=_make_handler("xmemo_search"),
-        )
-        ctx.register_tool(
-            name="xmemo_get",
-            schema=GET_SCHEMA,
-            handler=_make_handler("xmemo_get"),
-        )
-        ctx.register_tool(
-            name="xmemo_list",
-            schema=LIST_SCHEMA,
-            handler=_make_handler("xmemo_list"),
-        )
+        def _safe_register(name: str, schema: dict) -> None:
+            handler = _make_handler(name)
+            try:
+                # Hermes PluginContext expects (name, toolset, schema, handler)
+                ctx.register_tool(
+                    name=name,
+                    toolset="xmemo",
+                    schema=schema,
+                    handler=handler,
+                )
+            except TypeError as exc:
+                if "toolset" in str(exc):
+                    ctx.register_tool(
+                        name=name,
+                        schema=schema,
+                        handler=handler,
+                    )
+                else:
+                    raise
+
+        _safe_register("xmemo_search", SEARCH_SCHEMA)
+        _safe_register("xmemo_get", GET_SCHEMA)
+        _safe_register("xmemo_list", LIST_SCHEMA)
+

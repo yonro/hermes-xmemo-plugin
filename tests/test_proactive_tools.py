@@ -50,8 +50,12 @@ class MockPluginContext:
     def register_memory_provider(self, provider):
         self.registered_provider = provider
 
-    def register_tool(self, name, schema, handler):
+    def register_tool(self, name, toolset="xmemo", schema=None, handler=None, **kwargs):
+        if handler is None and isinstance(toolset, dict):
+            schema, handler = toolset, schema
+            toolset = "xmemo"
         self.registered_tools[name] = {
+            "toolset": toolset,
             "schema": schema,
             "handler": handler,
         }
