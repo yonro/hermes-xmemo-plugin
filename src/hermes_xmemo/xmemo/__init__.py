@@ -19,6 +19,7 @@ from tools.registry import tool_error
 
 from .client import XMemoClient
 from .config import load_config, save_config
+from .temporal import build_cache_params, validate_time_filters
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,22 @@ def _matches_search_alias_trigger(text: str, trigger: str) -> bool:
 # Tool schemas
 # ---------------------------------------------------------------------------
 
+_TEMPORAL_PROPERTIES = {
+    "since": {"type": "string", "description": "Inclusive start of [since, until); RFC3339 with timezone offset required."},
+    "until": {"type": "string", "description": "Exclusive end of [since, until); RFC3339 with timezone offset, strictly later than since."},
+    "time_order": {"type": "string", "enum": ["asc", "desc"], "description": "Chronological order: asc oldest first, desc newest first."},
+    "owner_timezone": {"type": "string", "description": "Non-empty IANA timezone name, such as Asia/Tokyo; validated by the server."},
+    "reference_time": {"type": "string", "description": "Optional reference instant, RFC3339 with timezone offset required."},
+    "temporal_axis_mode": {
+        "type": "string", "enum": ["created_at", "updated_at", "split_filter_created_order_updated"],
+        "description": "Time axis: creation, update, or filter by creation and order by update.",
+    },
+    "query_mode": {
+        "type": "string", "enum": ["topic", "activity_log"],
+        "description": "topic retrieves relevant memories; activity_log requires both since and until for a bounded event feed.",
+    },
+}
+
 SEARCH_SCHEMA = {
     "name": "xmemo_search",
     "description": (
@@ -93,6 +110,7 @@ SEARCH_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            **_TEMPORAL_PROPERTIES,
             "query": {
                 "type": "string",
                 "description": (
@@ -226,6 +244,11 @@ RECALL_CONTEXT_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            **_TEMPORAL_PROPERTIES,
+            "hypothetical_answer": {
+                "type": "string",
+                "description": "Optional non-empty hypothetical answer or semantic expansion to guide context retrieval.",
+            },
             "query": {
                 "type": "string",
                 "description": "What to recall context for.",
@@ -1261,6 +1284,12 @@ class XMemoMemoryProvider(MemoryProvider):
         return tool_error(f"Unknown XMemo tool: {tool_name}")
 
     def _handle_search(self, client: XMemoClient, args: Dict[str, Any]) -> str:
+        try:
+            temporal = validate_time_filters(**{
+                name: args[name] for name in _TEMPORAL_PROPERTIES if name in args
+            })
+        except ValueError as exc:
+            return tool_error(str(exc))
         query = args.get("query", "").strip()
         if not query:
             return tool_error("Missing required parameter: query")
@@ -1280,6 +1309,8 @@ class XMemoMemoryProvider(MemoryProvider):
             "limit": limit,
             "base_url": self._config.get("base_url", "https://xmemo.dev"),
         }
+
+        params = build_cache_params(params, **temporal)
 
         if self._local_cache:
             try:
@@ -1310,6 +1341,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 scope=self._read_scope(),
                 memory_type=memory_type,
                 limit=limit,
+                **temporal,
             )
             self._record_success()
 
@@ -1525,6 +1557,14 @@ class XMemoMemoryProvider(MemoryProvider):
         )
 
     def _handle_recall_context(self, client: XMemoClient, args: Dict[str, Any]) -> str:
+        try:
+            temporal = validate_time_filters(
+                **{name: args[name] for name in _TEMPORAL_PROPERTIES if name in args},
+                hypothetical_answer=args.get("hypothetical_answer"),
+                allow_hypothetical=True,
+            )
+        except ValueError as exc:
+            return tool_error(str(exc))
         query = args.get("query", "").strip()
         if not query:
             return tool_error("Missing required parameter: query")
@@ -1546,6 +1586,7 @@ class XMemoMemoryProvider(MemoryProvider):
             "prefer_working": True,
             "base_url": self._config.get("base_url", "https://xmemo.dev"),
         }
+        params = build_cache_params(params, **temporal, allow_hypothetical=True)
 
         try:
             if self._is_breaker_open():
@@ -1559,6 +1600,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 max_tokens=max_tokens,
                 memory_type=memory_type,
                 prefer_working=True,
+                **temporal,
             )
             self._record_success()
 

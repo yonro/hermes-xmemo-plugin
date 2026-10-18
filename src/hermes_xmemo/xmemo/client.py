@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .temporal import validate_time_filters
+
 logger = logging.getLogger(__name__)
 
 
@@ -217,8 +219,22 @@ class XMemoClient:
         max_tokens: int = 900,
         memory_type: str = "auto",
         prefer_working: bool = True,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        time_order: Optional[str] = None,
+        owner_timezone: Optional[str] = None,
+        reference_time: Optional[str] = None,
+        temporal_axis_mode: Optional[str] = None,
+        query_mode: Optional[str] = None,
+        hypothetical_answer: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build a bounded context pack from XMemo memories."""
+        temporal = validate_time_filters(
+            since=since, until=until, time_order=time_order,
+            owner_timezone=owner_timezone, reference_time=reference_time,
+            temporal_axis_mode=temporal_axis_mode, query_mode=query_mode,
+            hypothetical_answer=hypothetical_answer, allow_hypothetical=True,
+        )
         return self._request(
             "POST",
             "/v1/recall/context",
@@ -230,6 +246,7 @@ class XMemoClient:
                 "max_tokens": max_tokens,
                 "memory_type": memory_type,
                 "prefer_working": prefer_working,
+                **temporal,
             }),
         )
 
@@ -244,8 +261,20 @@ class XMemoClient:
         limit: int = 10,
         explain: bool = False,
         prefer_working: bool = False,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        time_order: Optional[str] = None,
+        owner_timezone: Optional[str] = None,
+        reference_time: Optional[str] = None,
+        temporal_axis_mode: Optional[str] = None,
+        query_mode: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Semantic search over XMemo memories."""
+        temporal = validate_time_filters(
+            since=since, until=until, time_order=time_order,
+            owner_timezone=owner_timezone, reference_time=reference_time,
+            temporal_axis_mode=temporal_axis_mode, query_mode=query_mode,
+        )
         params: Dict[str, Any] = {
             "query": query,
             "bucket": bucket,
@@ -257,6 +286,7 @@ class XMemoClient:
         }
         if path and path != "%":
             params["path"] = path
+        params.update(temporal)
         result = self._request(
             "GET",
             "/v1/memories/search",
