@@ -73,6 +73,32 @@ Prefetch state is isolated per Hermes profile and session.
 | `xmemo_remember` | Save a durable fact, preference, or decision |
 | `xmemo_update_state` | Save active task, next action, or blocker with TTL |
 
+### Temporal retrieval options
+
+Both `xmemo_search` and `xmemo_recall_context` accept these optional fields:
+
+| Field | Meaning |
+|---|---|
+| `since` | Inclusive start, RFC3339 timestamp with timezone offset |
+| `until` | Exclusive end, RFC3339 timestamp with timezone offset; must be later than `since` |
+| `time_order` | `asc` (oldest first) or `desc` (newest first) |
+| `owner_timezone` | Non-empty IANA name such as `Asia/Tokyo`; the server validates the name |
+| `reference_time` | Reference instant in RFC3339 with timezone offset |
+| `temporal_axis_mode` | `created_at`, `updated_at`, or `split_filter_created_order_updated` |
+| `query_mode` | `topic` for relevant memories, or `activity_log` for a bounded event feed |
+| `hypothetical_answer` | Non-empty semantic expansion; **`xmemo_recall_context` only** |
+
+The interval is half-open: `[since, until)`. Use an explicit offset, for example
+`2026-10-01T00:00:00+09:00` or `2026-09-30T15:00:00Z`; naive timestamps are rejected.
+`query_mode=activity_log` requires **both** `since` and `until`. Invalid or missing
+required bounds are rejected locally without sending a request.
+
+Omit unused fields; do not send empty strings. Existing calls without temporal
+fields remain backward compatible, including their cache keys. Temporal requests
+use separate cache keys. Background prefetch does not infer temporal filters from
+text such as “last week”, “yesterday”, or “上周”; use explicit tool arguments when
+you need a bounded time interval.
+
 ### Optional workflow tools
 
 Set `"enable_workflow_tools": true` in `xmemo.json`:

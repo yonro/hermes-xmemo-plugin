@@ -11,3 +11,4 @@ build/
 # Hermes runtime state (if someone runs from inside the repo)
 .env
 xmemo.json
+src/hermes_xmemo/_version.py
