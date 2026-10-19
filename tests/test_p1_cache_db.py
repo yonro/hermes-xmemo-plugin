@@ -44,6 +44,7 @@ hc_mod.get_hermes_home = lambda: Path("/fake/hermes/home")
 sys.modules.setdefault("hermes_constants", hc_mod)
 
 # Now safe to import
+from hermes_xmemo.xmemo.cache import identity_fingerprint
 from hermes_xmemo.xmemo.cache import XMemoLocalCache
 
 
@@ -123,12 +124,13 @@ class TestXMemoLocalCache(unittest.TestCase):
             method="POST",
             payload=payload,
             idempotency_key=idempotency_key,
-            status="pending"
+            status="pending",
+            identity=identity_fingerprint("synthetic-key", "agent"),
         )
         self.assertIsNotNone(record_id)
 
         # List pending (should include our record)
-        pending = self.cache.list_pending_writes()
+        pending = self.cache.list_pending_writes(identity_fingerprint("synthetic-key", "agent"))
         self.assertEqual(len(pending), 1)
         self.assertEqual(pending[0]["id"], record_id)
         self.assertEqual(pending[0]["idempotency_key"], idempotency_key)
@@ -143,7 +145,7 @@ class TestXMemoLocalCache(unittest.TestCase):
         self.assertFalse(locked_again)
 
         # Verify it's no longer in pending writes list
-        self.assertEqual(len(self.cache.list_pending_writes()), 0)
+        self.assertEqual(len(self.cache.list_pending_writes(identity_fingerprint("synthetic-key", "agent"))), 0)
 
         # Mark sent
         self.cache.mark_write_sent(record_id)
@@ -164,14 +166,15 @@ class TestXMemoLocalCache(unittest.TestCase):
             method="POST",
             payload=payload,
             idempotency_key=idempotency_key,
-            status="pending"
+            status="pending",
+            identity=identity_fingerprint("synthetic-key", "agent"),
         )
 
         # Simulate a transient failure on replay (retry 1)
         self.cache.mark_write_failed(record_id, error="timeout error", is_transient=True, max_retries=3)
         
         # Should be pending but backoff set, so list_pending_writes should be empty (since next_retry_at is in future)
-        pending = self.cache.list_pending_writes()
+        pending = self.cache.list_pending_writes(identity_fingerprint("synthetic-key", "agent"))
         self.assertEqual(len(pending), 0)
 
         # Test non-transient failure (should dead-letter immediately)
@@ -181,7 +184,8 @@ class TestXMemoLocalCache(unittest.TestCase):
             method="POST",
             payload=payload,
             idempotency_key="idemp-key-789",
-            status="pending"
+            status="pending",
+            identity=identity_fingerprint("synthetic-key", "agent"),
         )
         self.cache.mark_write_failed(record_id_2, error="400 Bad Request", is_transient=False, max_retries=3)
         
@@ -211,7 +215,8 @@ class TestXMemoLocalCache(unittest.TestCase):
             payload=payload,
             idempotency_key="idemp-1",
             status="pending",
-            auto_replay=1
+            auto_replay=1,
+            identity=identity_fingerprint("synthetic-key", "agent"),
         )
         self.cache.lock_write_for_processing(record_id)
 
@@ -223,7 +228,8 @@ class TestXMemoLocalCache(unittest.TestCase):
             payload=payload,
             idempotency_key="idemp-2",
             status="pending", # must be pending to lock it
-            auto_replay=0
+            auto_replay=0,
+            identity=identity_fingerprint("synthetic-key", "agent"),
         )
         self.cache.lock_write_for_processing(record_id_2)
 
@@ -240,7 +246,7 @@ class TestXMemoLocalCache(unittest.TestCase):
         self.assertEqual(recovered, 2)
 
         # Verify status: record_id is back to pending, record_id_2 is back to held
-        pending = self.cache.list_pending_writes()
+        pending = self.cache.list_pending_writes(identity_fingerprint("synthetic-key", "agent"))
         self.assertEqual(len(pending), 1)
         self.assertEqual(pending[0]["id"], record_id)
 
@@ -251,8 +257,8 @@ class TestXMemoLocalCache(unittest.TestCase):
         """Test clear_cache, clear_outbox, and record pruning."""
         # Add a cache entry and outbox entries
         self.cache.put_cached_recall("search", "q", {}, {"ok": True})
-        rec_sent = self.cache.enqueue_write("remember", "/v1/remember", "POST", {}, "k1", "sent")
-        rec_failed = self.cache.enqueue_write("remember", "/v1/remember", "POST", {}, "k2", "failed")
+        rec_sent = self.cache.enqueue_write("remember", "/v1/remember", "POST", {}, "k1", "sent", identity=identity_fingerprint("synthetic-key", "agent"))
+        rec_failed = self.cache.enqueue_write("remember", "/v1/remember", "POST", {}, "k2", "failed", identity=identity_fingerprint("synthetic-key", "agent"))
 
         # Verify stats
         stats = self.cache.get_stats()

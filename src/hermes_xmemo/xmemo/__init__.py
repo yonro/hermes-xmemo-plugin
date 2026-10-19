@@ -20,8 +20,13 @@ from tools.registry import tool_error
 from .client import XMemoClient
 from .config import load_config, save_config
 from .temporal import build_cache_params, validate_time_filters
+from .cache import identity_fingerprint, with_cache_identity
 
 logger = logging.getLogger(__name__)
+
+
+class _CircuitBreakerOpen(Exception):
+    """A locally rejected attempt, not a new backend failure."""
 
 # Circuit breaker: pause API calls after consecutive failures.
 _BREAKER_THRESHOLD = 5
@@ -667,7 +672,8 @@ class XMemoMemoryProvider(MemoryProvider):
         if self._consecutive_failures < _BREAKER_THRESHOLD:
             return False
         if time.monotonic() >= self._breaker_open_until:
-            self._consecutive_failures = 0
+            # Permit recovery, but one failed probe must reopen immediately.
+            self._consecutive_failures = _BREAKER_THRESHOLD - 1
             return False
         return True
 
@@ -718,11 +724,13 @@ class XMemoMemoryProvider(MemoryProvider):
         import uuid
         # Generate stable idempotency key at initiation
         idempotency_key = uuid.uuid4().hex
+        identity = identity_fingerprint(client.api_key, client.agent_id)
 
         # Check if circuit breaker is open
         if self._is_breaker_open():
             return self._enqueue_transient_failure(
-                operation, endpoint, method, payload, idempotency_key, "Circuit breaker is open"
+                operation, endpoint, method, payload, idempotency_key, "Circuit breaker is open",
+                record_failure=False, identity=identity,
             )
 
         try:
@@ -751,7 +759,7 @@ class XMemoMemoryProvider(MemoryProvider):
 
             if is_transient:
                 return self._enqueue_transient_failure(
-                    operation, endpoint, method, payload, idempotency_key, str(exc)
+                    operation, endpoint, method, payload, idempotency_key, str(exc), identity=identity
                 )
 
             # Non-transient error: fail immediately
@@ -766,9 +774,13 @@ class XMemoMemoryProvider(MemoryProvider):
         payload: Dict[str, Any],
         idempotency_key: str,
         error_msg: str,
+        *,
+        identity: str,
+        record_failure: bool = True,
     ) -> str:
         """Enqueue a transient failure into the outbox with proper pending/held status."""
-        self._record_failure(error_msg)
+        if record_failure:
+            self._record_failure(error_msg)
 
         if not self._local_cache:
             return tool_error(f"XMemo is offline and local outbox is unavailable: {error_msg}")
@@ -792,6 +804,7 @@ class XMemoMemoryProvider(MemoryProvider):
                 idempotency_key=idempotency_key,
                 status=status,
                 auto_replay=auto_replay,
+                identity=identity,
             )
             # Trigger background outbox sync (only picks up pending writes)
             if status == "pending":
@@ -899,12 +912,13 @@ class XMemoMemoryProvider(MemoryProvider):
             # Prune old records first (keeps DB size minimal)
             self._local_cache.prune_old_records()
 
-            pending_records = self._local_cache.list_pending_writes()
+            client = self._get_client()
+            identity = identity_fingerprint(client.api_key, client.agent_id)
+            pending_records = self._local_cache.list_pending_writes(identity)
             if not pending_records:
                 return
 
             logger.info("XMemo outbox sync: processing %d pending writes", len(pending_records))
-            client = self._get_client()
 
             for record in pending_records:
                 record_id = record["id"]
@@ -958,6 +972,15 @@ class XMemoMemoryProvider(MemoryProvider):
         """Scope for new Hermes-authored memories."""
         return str(self._config.get("scope", "hermes/default") or "hermes/default")
 
+    def _cache_params(self, params: Dict[str, Any], client: XMemoClient) -> Dict[str, Any]:
+        # An in-flight request may outlive initialize(). Bind its response to
+        # the client that actually sent it, never to a newer provider config.
+        # Preserve existing key serialization for an equivalent configured URL
+        # (including a trailing slash), but never label an old endpoint as new.
+        if str(params.get("base_url", "")).rstrip("/") != client.base_url:
+            params = {**params, "base_url": client.base_url}
+        return with_cache_identity(params, client.api_key, client.agent_id)
+
     def _read_bucket(self) -> str:
         """Bucket filter for recall/search.
 
@@ -981,7 +1004,7 @@ class XMemoMemoryProvider(MemoryProvider):
 
     def initialize(self, session_id: str, **kwargs) -> None:
         """Initialize XMemo provider for a session."""
-        self._config = load_config(create_instance=True)
+        new_config = load_config(create_instance=True)
         self._session_id = session_id or ""
         self._turn_count = 0
 
@@ -990,13 +1013,31 @@ class XMemoMemoryProvider(MemoryProvider):
 
         # Scope per-profile if the active Hermes profile differs from default
         profile = kwargs.get("agent_identity") or "default"
-        configured_scope = self._config.get("scope", "hermes/default")
+        configured_scope = new_config.get("scope", "hermes/default")
         if configured_scope == "hermes/default" and profile != "default":
-            self._config["scope"] = f"hermes/{profile}"
+            new_config["scope"] = f"hermes/{profile}"
             try:
-                save_config(self._config)
+                save_config(new_config)
             except Exception:
                 pass
+
+        # Publish config and invalidate the old client under the same lock used
+        # by lazy creation. No request or prefetch locks are acquired here.
+        with self._client_lock:
+            client = self._client
+            if client is not None and (
+                client.api_key != new_config.get("api_key", "")
+                or client.agent_id != new_config.get("agent_id", "hermes")
+                or client.agent_instance_id != new_config.get("agent_instance_id", "")
+                or client.base_url != new_config.get("base_url", "https://xmemo.dev").rstrip("/")
+                or client.timeout != float(new_config.get("timeout_seconds", 5.0))
+            ):
+                self._client = None
+                try:
+                    client.close()
+                except Exception as exc:
+                    logger.debug("XMemo old client close failed during initialize: %s", exc)
+            self._config = new_config
 
         if not self._config.get("api_key"):
             logger.debug("XMemo not configured — plugin inactive")
@@ -1095,6 +1136,12 @@ class XMemoMemoryProvider(MemoryProvider):
             return
 
         def _run() -> None:
+            try:
+                client = self._get_client()
+            except Exception as exc:
+                self._record_failure(str(exc))
+                logger.debug("XMemo prefetch client unavailable: %s", exc)
+                return
             max_items = int(self._config.get("prefetch_max_items", 5))
             max_tokens = int(self._config.get("prefetch_max_tokens", 900))
             params = {
@@ -1106,12 +1153,12 @@ class XMemoMemoryProvider(MemoryProvider):
                 "prefer_working": True,
                 "base_url": self._config.get("base_url", "https://xmemo.dev"),
             }
+            params = self._cache_params(params, client)
 
             try:
                 if self._is_breaker_open():
-                    raise Exception("Circuit breaker is open")
+                    raise _CircuitBreakerOpen("Circuit breaker is open")
 
-                client = self._get_client()
                 context = client.recall_context(
                     query=query,
                     bucket=self._read_bucket(),
@@ -1134,7 +1181,8 @@ class XMemoMemoryProvider(MemoryProvider):
                     with self._prefetch_lock:
                         self._prefetch_results[key] = text
             except Exception as exc:
-                self._record_failure(str(exc))
+                if not isinstance(exc, _CircuitBreakerOpen):
+                    self._record_failure(str(exc))
                 logger.debug("XMemo prefetch online failed: %s", exc)
 
                 # Evaluate if failure is transient/retryable
@@ -1310,7 +1358,7 @@ class XMemoMemoryProvider(MemoryProvider):
             "base_url": self._config.get("base_url", "https://xmemo.dev"),
         }
 
-        params = build_cache_params(params, **temporal)
+        params = self._cache_params(build_cache_params(params, **temporal), client)
 
         if self._local_cache:
             try:
@@ -1333,7 +1381,7 @@ class XMemoMemoryProvider(MemoryProvider):
 
         try:
             if self._is_breaker_open():
-                raise Exception("Circuit breaker is open")
+                raise _CircuitBreakerOpen("Circuit breaker is open")
 
             results = client.search(
                 query=search_query,
@@ -1360,7 +1408,8 @@ class XMemoMemoryProvider(MemoryProvider):
                 "count": len(results),
             })
         except Exception as exc:
-            self._record_failure(str(exc))
+            if not isinstance(exc, _CircuitBreakerOpen):
+                self._record_failure(str(exc))
             logger.debug("XMemo search online failed: %s", exc)
 
             # Evaluate if failure is transient/retryable
@@ -1586,11 +1635,11 @@ class XMemoMemoryProvider(MemoryProvider):
             "prefer_working": True,
             "base_url": self._config.get("base_url", "https://xmemo.dev"),
         }
-        params = build_cache_params(params, **temporal, allow_hypothetical=True)
+        params = self._cache_params(build_cache_params(params, **temporal, allow_hypothetical=True), client)
 
         try:
             if self._is_breaker_open():
-                raise Exception("Circuit breaker is open")
+                raise _CircuitBreakerOpen("Circuit breaker is open")
 
             context = client.recall_context(
                 query=query,
@@ -1619,7 +1668,8 @@ class XMemoMemoryProvider(MemoryProvider):
                 "items": context.get("items", []) if isinstance(context, dict) else [],
             })
         except Exception as exc:
-            self._record_failure(str(exc))
+            if not isinstance(exc, _CircuitBreakerOpen):
+                self._record_failure(str(exc))
             logger.debug("XMemo recall_context online failed: %s", exc)
 
             # Evaluate if failure is transient/retryable

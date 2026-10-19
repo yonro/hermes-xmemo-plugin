@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from test_proactive_tools import XMemoMemoryProvider
-from hermes_xmemo.xmemo.cache import XMemoLocalCache
+from hermes_xmemo.xmemo.cache import XMemoLocalCache, with_cache_identity
 
 
 # Executed HEAD (30fe1bc) queue_prefetch + cache.py to obtain these golden values.
@@ -18,7 +18,7 @@ def test_prefetch_no_temporal_inference(tmp_path, query, golden):
     provider._config = {"api_key": "test", "prefetch_max_items": 3, "prefetch_max_tokens": 1200}
     cache = XMemoLocalCache(tmp_path / "prefetch.sqlite")
     provider._local_cache = MagicMock(wraps=cache)
-    client = MagicMock()
+    client = MagicMock(api_key="test", agent_id="hermes", base_url="https://xmemo.dev")
     client.recall_context.return_value = {"context_text": "prefetched", "items": []}
     provider._get_client = lambda: client
     provider.queue_prefetch(query, session_id="test")
@@ -31,9 +31,17 @@ def test_prefetch_no_temporal_inference(tmp_path, query, golden):
     )
     params = {"bucket": "%", "scope": None, "memory_type": "auto", "max_items": 3,
               "max_tokens": 1200, "prefer_working": True, "base_url": "https://xmemo.dev"}
+    # Preserve the legacy helper serialization; provider keys now bind identity.
+    assert cache._hash_signature("recall_context", query, params) == golden
+    params = with_cache_identity(params, "test", "hermes")
     provider._local_cache.put_cached_recall.assert_called_once_with(
         "recall_context", query, params, client.recall_context.return_value,
     )
-    assert cache._hash_signature("recall_context", query, params) == golden
+    identity_goldens = {
+        "Summarize last week decisions": "2648d52126d0626a046d59cbb8bed883a8202f10cb9410988fae9891d28d9152",
+        "Summarize yesterday decisions": "aa85d81519b81bdc88917cb19f13ce29d85266eccc37dc67509668260dc8934f",
+        "总结上周的项目决策": "92817a68b6240ca6ede2b6d1a87aedd7da42e0bafac4a240db1a879df3758095",
+    }
+    assert cache._hash_signature("recall_context", query, params) == identity_goldens[query]
     assert cache.get_cached_recall("recall_context", query, params)["context_text"] == "prefetched"
     assert "prefetched" in provider.prefetch(query, session_id="test")

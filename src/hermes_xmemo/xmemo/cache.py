@@ -17,6 +17,17 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def identity_fingerprint(api_key: str, agent_id: str) -> str:
+    """Fingerprint credentials and agent without persisting their raw values."""
+    identity = json.dumps([api_key, agent_id], ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(("xmemo-cache-identity-v1\0" + identity).encode("utf-8")).hexdigest()
+
+
+def with_cache_identity(params: Dict[str, Any], api_key: str, agent_id: str) -> Dict[str, Any]:
+    """Bind read cache to identity, preserving the existing cache key format."""
+    return {**params, "cache_identity_v1": identity_fingerprint(api_key, agent_id)}
+
+
 class XMemoLocalCache:
     """Manages the local SQLite database for recall caching and write queuing."""
 
@@ -76,6 +87,21 @@ class XMemoLocalCache:
                 ON recall_cache(operation, id, max_stale_until);
             """)
 
+            # Remove unbound legacy/expired read entries, never queued writes.
+            conn.execute("DELETE FROM recall_cache WHERE max_stale_until < ?", (time.time(),))
+            legacy_ids = []
+            for row in conn.execute("SELECT id, params_json FROM recall_cache"):
+                try:
+                    params = json.loads(row["params_json"])
+                    identity = params.get("cache_identity_v1") if isinstance(params, dict) else None
+                    valid = (isinstance(identity, str) and len(identity) == 64
+                             and all(c in "0123456789abcdef" for c in identity))
+                except (ValueError, TypeError):
+                    valid = False
+                if not valid:
+                    legacy_ids.append((row["id"],))
+            conn.executemany("DELETE FROM recall_cache WHERE id = ?", legacy_ids)
+
             # Table for queuing failed writes
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS write_outbox (
@@ -112,6 +138,18 @@ class XMemoLocalCache:
                     conn.execute("ALTER TABLE write_outbox ADD COLUMN auto_replay INTEGER NOT NULL DEFAULT 1;")
             except Exception as exc:
                 logger.debug("Failed to migrate auto_replay column: %s", exc)
+
+            # Fail closed if this migration fails: an unbound queue must never drain.
+            columns = [row["name"] for row in conn.execute("PRAGMA table_info(write_outbox)")]
+            if "identity" not in columns:
+                conn.execute("ALTER TABLE write_outbox ADD COLUMN identity TEXT")
+            conn.execute(
+                """UPDATE write_outbox SET status = 'held', auto_replay = 0,
+                   locked_at = NULL,
+                   last_error = 'legacy write without owner identity; not replayed automatically'
+                   WHERE (identity IS NULL OR identity = '')
+                   AND status IN ('pending', 'processing')"""
+            )
 
     def _hash_signature(self, operation: str, query: str, params: Dict[str, Any]) -> str:
         """Generate a stable SHA256 signature of the request parameters."""
@@ -219,6 +257,8 @@ class XMemoLocalCache:
         idempotency_key: str,
         status: str = "pending",
         auto_replay: int = 1,
+        *,
+        identity: str,
     ) -> str:
         """Enqueue a write request in the outbox database."""
         import uuid
@@ -228,22 +268,23 @@ class XMemoLocalCache:
         with self._get_conn() as conn:
             conn.execute(
                 """INSERT INTO write_outbox 
-                   (id, operation, endpoint, method, payload_json, idempotency_key, status, retry_count, created_at, updated_at, auto_replay) 
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)""",
-                (record_id, operation, endpoint, method, payload_json, idempotency_key, status, now, now, auto_replay)
+                   (id, operation, endpoint, method, payload_json, idempotency_key, status, retry_count, created_at, updated_at, auto_replay, identity)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)""",
+                (record_id, operation, endpoint, method, payload_json, idempotency_key, status, now, now, auto_replay, identity)
             )
         return record_id
 
-    def list_pending_writes(self) -> List[Dict[str, Any]]:
+    def list_pending_writes(self, identity: str) -> List[Dict[str, Any]]:
         """List pending writes that are eligible for a retry attempt."""
         now = time.time()
         with self._get_conn() as conn:
             cursor = conn.execute(
                 """SELECT id, operation, endpoint, method, payload_json, idempotency_key, retry_count 
                    FROM write_outbox 
-                   WHERE status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= ?) 
+                   WHERE identity = ? AND identity != '' AND status = 'pending'
+                   AND auto_replay = 1 AND (next_retry_at IS NULL OR next_retry_at <= ?)
                    ORDER BY created_at ASC""",
-                (now,)
+                (identity, now)
             )
             return [dict(row) for row in cursor.fetchall()]
 
