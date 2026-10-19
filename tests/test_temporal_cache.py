@@ -14,6 +14,7 @@ def load(name):
 
 
 Cache = load("cache").XMemoLocalCache
+identity = load("cache").with_cache_identity
 build = load("temporal").build_cache_params
 COMMON = {"bucket": "%", "scope": None, "memory_type": "auto", "base_url": "https://xmemo.dev"}
 LEGACY = {
@@ -24,6 +25,10 @@ LEGACY = {
 GOLDEN = {
     "search": "5b563e52d7aefa4d3d281a40451d588c117e39d1e1e8eb65797c051a143f336f",
     "recall_context": "99445081beec7f5e10a0c75a23a7b59cff238272f5689c1a4cef0a1dee873ec1",
+}
+IDENTITY_GOLDEN = {
+    "search": "eb9348fb83f505d361c0ccea0292e5aeadeeb4c480895b9509f9a4c8dc32063d",
+    "recall_context": "f798049b90ce7f1d9a54669699c03b6f277212c64b97e0f63e29f847ce7101f4",
 }
 BOUNDS = {"since": "2026-10-01T00:00:00+09:00", "until": "2026-10-02T00:00:00+09:00"}
 
@@ -40,6 +45,7 @@ def test_legacy_golden(cache, operation):
     assert params == base
     assert params is not base
     assert cache._hash_signature(operation, "test", params) == GOLDEN[operation]
+    assert cache._hash_signature(operation, "test", identity(params, "test", "hermes")) == IDENTITY_GOLDEN[operation]
 
 
 @pytest.mark.parametrize("operation", LEGACY)

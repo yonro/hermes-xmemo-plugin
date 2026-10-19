@@ -187,8 +187,8 @@ The interval is half-open: `[since, until)`. Use an explicit offset, for example
 required bounds are rejected locally without sending a request.
 
 Omit unused fields; do not send empty strings. Existing calls without temporal
-fields remain backward compatible, including their cache keys. Temporal requests
-use separate cache keys. Background prefetch does not infer temporal filters from
+fields remain backward compatible. Read-cache keys bind account identity and
+temporal fields. Background prefetch does not infer temporal filters from
 text such as “last week”, “yesterday”, or “上周”; use explicit tool arguments when
 you need a bounded time interval.
 
@@ -278,7 +278,8 @@ network failures degrade safely.
 
 | Layer | Behavior |
 |---|---|
-| Fresh read cache | Reuses matching recall/search results for 5 minutes |
+| Fresh search cache | Search reuses matching results for 5 minutes |
+| Recall and prefetch | Online first; cached context is used only for offline/transient-failure fallback |
 | Stale fallback | Returns marked cache results during transient failures, up to 24 hours old |
 | Write outbox | Queues transiently failed writes with stable idempotency keys |
 | Replay | Retries idempotent writes up to 5 times with exponential backoff capped at 1 hour |
@@ -289,6 +290,19 @@ network failures degrade safely.
 Fallback responses are explicitly marked with `stale: true` and
 `source: "cache"` so the agent does not confuse an offline cache result with
 fresh cloud state.
+
+Read-cache entries are isolated by endpoint (`base_url`), a one-way credential
+and agent identity fingerprint, and retrieval parameters including temporal
+filters. Changing credentials invalidates reuse. Legacy entries without identity
+and entries beyond the 24-hour fallback window are removed when the cache opens;
+queued writes are preserved. A fresh search hit does not contact the server, so
+remote permission changes are observed on the next online request.
+
+Queued writes are bound to a one-way fingerprint of the initiating credentials
+and agent identity. After an account switch, another identity cannot replay
+them; they remain queued for the original identity to return. On upgrade,
+unsent legacy writes without an owner identity are preserved as `held` with automatic
+replay disabled, for manual recovery.
 
 > [!WARNING]
 > `xmemo_cache.db` contains cached memory responses and queued write payloads as

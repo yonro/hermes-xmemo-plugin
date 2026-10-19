@@ -94,8 +94,8 @@ The interval is half-open: `[since, until)`. Use an explicit offset, for example
 required bounds are rejected locally without sending a request.
 
 Omit unused fields; do not send empty strings. Existing calls without temporal
-fields remain backward compatible, including their cache keys. Temporal requests
-use separate cache keys. Background prefetch does not infer temporal filters from
+fields remain backward compatible. Read-cache keys bind account identity and
+temporal fields. Background prefetch does not infer temporal filters from
 text such as “last week”, “yesterday”, or “上周”; use explicit tool arguments when
 you need a bounded time interval.
 
@@ -167,7 +167,8 @@ git-tracked files, logs, or shell history.
 The provider stores its local reliability state in
 `$HERMES_HOME/xmemo_cache.db`:
 
-- successful recall/search results remain fresh for 5 minutes;
+- search reuses matching fresh results for 5 minutes;
+- recall_context and prefetch are online first; cached context is used only on offline/transient failures;
 - marked stale results can be used for up to 24 hours during transient
   failures;
 - transiently failed writes enter an outbox with stable idempotency keys;
@@ -175,6 +176,19 @@ The provider stores its local reliability state in
 - non-idempotent writes are held by default to prevent duplicates;
 - sent records are retained for 24 hours, failed records for 7 days, and the
   failed queue is capped at 100.
+
+Read-cache keys isolate `base_url`, a one-way credential/agent identity
+fingerprint, and retrieval parameters including temporal fields. Credential
+changes stop reuse. Opening the cache removes legacy entries without identity
+and entries past the fallback window, while preserving the write outbox.
+Fresh search hits do not contact the server; remote permission changes are
+observed on the next online request.
+
+Queued writes are bound to a one-way fingerprint of the initiating credentials
+and agent identity. After an account switch, another identity cannot replay
+them; they remain queued for the original identity to return. On upgrade,
+unsent legacy writes without an owner identity are preserved as `held` with automatic
+replay disabled, for manual recovery.
 
 The SQLite database stores cached responses and queued payloads as plain-text
 JSON. It never stores credentials, but the Hermes home directory should still

@@ -49,6 +49,7 @@ sys.modules.setdefault("hermes_constants", hc_mod)
 import httpx
 
 from hermes_xmemo.xmemo.client import XMemoClient, XMemoClientError
+from hermes_xmemo.xmemo.cache import identity_fingerprint
 from hermes_xmemo.xmemo.cache import XMemoLocalCache
 from hermes_xmemo.xmemo import XMemoMemoryProvider
 
@@ -204,6 +205,8 @@ class TestP1Integration(unittest.TestCase):
         self.assertIn("hermes cache content", res_online_str)
         
         # Verify record exists in cache
+        # Provider cache keys now include a non-reversible account identity.
+        params = self.provider._cache_params(params, self.provider._get_client())
         cached = self.provider._local_cache.get_cached_recall("search", query, params)
         self.assertIsNotNone(cached)
         self.assertEqual(cached["results"], response_data)
@@ -337,7 +340,8 @@ class TestP1Integration(unittest.TestCase):
             method="POST",
             payload=payload,
             idempotency_key=idempotency_key,
-            status="pending"
+            status="pending",
+            identity=identity_fingerprint(self.provider._config.get("api_key", ""), self.provider._config.get("agent_id", "hermes")),
         )
 
         # 1. Transient failure on replay (retry 1)
@@ -359,7 +363,8 @@ class TestP1Integration(unittest.TestCase):
             method="POST",
             payload=payload,
             idempotency_key="idemp-test-2",
-            status="pending"
+            status="pending",
+            identity=identity_fingerprint(self.provider._config.get("api_key", ""), self.provider._config.get("agent_id", "hermes")),
         )
         mock_request.side_effect = XMemoClientError("400 Bad Request", status_code=400)
         self.provider._sync_outbox()
@@ -382,7 +387,8 @@ class TestP1Integration(unittest.TestCase):
             method="POST",
             payload={},
             idempotency_key="idemp-lock-1",
-            status="pending"
+            status="pending",
+            identity=identity_fingerprint(self.provider._config.get("api_key", ""), self.provider._config.get("agent_id", "hermes")),
         )
         self.provider._local_cache.lock_write_for_processing(record_id)
         
@@ -399,7 +405,7 @@ class TestP1Integration(unittest.TestCase):
     def test_clear_outbox_warning(self):
         """Verify clear_cache and clear_outbox isolate correctly."""
         self.provider._local_cache.put_cached_recall("search", "q", {}, {"ok": True})
-        self.provider._local_cache.enqueue_write("remember", "/v1/remember", "POST", {}, "k1")
+        self.provider._local_cache.enqueue_write("remember", "/v1/remember", "POST", {}, "k1", identity=identity_fingerprint(self.provider._config.get("api_key", ""), self.provider._config.get("agent_id", "hermes")))
         
         # Clear cache only
         self.provider._local_cache.clear_cache()

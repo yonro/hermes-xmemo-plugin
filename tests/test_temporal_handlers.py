@@ -23,7 +23,7 @@ def boundary():
     provider._config = {"api_key": "test", "base_url": "https://xmemo.dev", "enable_tools": True}
     provider._local_cache = MagicMock()
     provider._local_cache.get_cached_recall.return_value = None
-    client = MagicMock()
+    client = MagicMock(api_key="test", agent_id="hermes", base_url="https://xmemo.dev")
     client.search.return_value = [{"id": "one", "content": "example"}]
     client.recall_context.return_value = {"context": "example", "items": []}
     return provider, client
@@ -71,7 +71,8 @@ def test_exact_client_and_cache_parameters(boundary, method, temporal):
     getattr(client, method).assert_called_once_with(query="test", **expected)
     args = provider._local_cache.put_cached_recall.call_args.args
     assert args[:2] == (method, "test")
-    assert args[2] == {**expected, "base_url": "https://xmemo.dev"}
+    assert args[2] == {**expected, "base_url": "https://xmemo.dev",
+                       "cache_identity_v1": "94de802a324e63414b56577248c8d63dc9d1f293fed3350e335686b91cc0ee2b"}
 
 
 @pytest.mark.parametrize("method", ["search", "recall_context"])
